@@ -31,6 +31,7 @@ import {
   getLoopDataDir,
   defaultSymlinkConfig,
   setupWorktreeSymlinks,
+  setupSandcastleDirJunctions,
 } from "./cache.ts";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,12 @@ const LOOP_DATA_DIR = ensureCacheDirs();
 const BDS_DB_PATH = getBeadsDbPath(LOOP_DATA_DIR);
 console.log(`Loop 数据目录：${LOOP_DATA_DIR}`);
 console.log(`Beads 数据库：${BDS_DB_PATH}`);
+
+// 将 sandcastle 的硬编码目录（.sandcastle/worktrees, .sandcastle/logs）
+// 通过 Junction 重定向到 LOOP_DATA_DIR/sandcastle/ 下。
+setupSandcastleDirJunctions(LOOP_DATA_DIR);
+console.log(`Sandcastle worktrees → ${path.join(LOOP_DATA_DIR, "sandcastle", "worktrees")}`);
+console.log(`Sandcastle logs     → ${path.join(LOOP_DATA_DIR, "sandcastle", "logs")}`);
 
 // plan→execute→merge 循环无限运行，直到所有 issue 处理完毕。
 // 没有待处理 issue 时会进入 IDLE_SLEEP_SECONDS 休眠，不会空转。
@@ -279,6 +286,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     maxIterations: 1,
     agent: pi(AGENTS.planner.model, { thinking: AGENTS.planner.thinking }),
     promptFile: "./.sandcastle/plan-prompt.md",
+    promptArgs: {
+      BD_DB_PATH: BDS_DB_PATH,
+    },
   });
 
   // 从 stdout 提取 <plan>...</plan> 之间的 JSON

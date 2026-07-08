@@ -11,17 +11,28 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import { execSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Cache Directory Resolution
 // ---------------------------------------------------------------------------
 
-/** Subdirectory names under LOOP_DATA_DIR. */
+/**
+ * Subdirectory names under LOOP_DATA_DIR.
+ *
+ * Layout:
+ *   <root>/
+ *     beads/            — beads Dolt database
+ *     sandcastle/
+ *       worktrees/      — git worktrees (via junction at .sandcastle/worktrees)
+ *       logs/           — agent session logs (via junction at .sandcastle/logs)
+ *     node_modules/      — shared npm cache (via junction in worktrees)
+ */
 export const SUBDIRS = {
   beads: "beads",
-  sandcastle: "sandcastle",
-  logs: "logs",
+  sandcastleWorktrees: ["sandcastle", "worktrees"],
+  sandcastleLogs: ["sandcastle", "logs"],
   nodeModules: "node_modules",
 } as const;
 
@@ -57,8 +68,8 @@ export function getLoopDataDir(): string {
     return path.resolve(home, ".local", "share", "Loop");
   }
 
-  // Ultimate fallback: current directory
-  return path.resolve(process.cwd(), ".loop-data");
+  // Ultimate fallback: temp directory
+  return path.resolve(os.tmpdir(), ".loop-data");
 }
 
 /** Path to the beads database directory. */
@@ -68,12 +79,17 @@ export function getBeadsDbPath(dataDir?: string): string {
 
 /** Path to the sandcastle worktrees directory. */
 export function getSandcastlePath(dataDir?: string): string {
-  return path.resolve(dataDir ?? getLoopDataDir(), SUBDIRS.sandcastle);
+  return path.resolve(dataDir ?? getLoopDataDir(), "sandcastle");
 }
 
-/** Path to the logs directory. */
-export function getLogsPath(dataDir?: string): string {
-  return path.resolve(dataDir ?? getLoopDataDir(), SUBDIRS.logs);
+/** Path to sandcastle worktrees subdirectory. */
+export function getSandcastleWorktreesPath(dataDir?: string): string {
+  return path.resolve(dataDir ?? getLoopDataDir(), ...SUBDIRS.sandcastleWorktrees);
+}
+
+/** Path to sandcastle logs subdirectory. */
+export function getSandcastleLogsPath(dataDir?: string): string {
+  return path.resolve(dataDir ?? getLoopDataDir(), ...SUBDIRS.sandcastleLogs);
 }
 
 /** Path to the shared node_modules cache directory. */
@@ -87,10 +103,18 @@ export function getNodeModulesCachePath(dataDir?: string): string {
  */
 export function ensureCacheDirs(dataDir?: string): string {
   const root = dataDir ?? getLoopDataDir();
-  for (const subdir of Object.values(SUBDIRS)) {
-    const p = path.resolve(root, subdir);
-    fs.mkdirSync(p, { recursive: true });
+
+  // beads (single-level)
+  fs.mkdirSync(path.resolve(root, SUBDIRS.beads), { recursive: true });
+
+  // sandcastle/worktrees and sandcastle/logs (nested)
+  for (const segments of [SUBDIRS.sandcastleWorktrees, SUBDIRS.sandcastleLogs]) {
+    fs.mkdirSync(path.resolve(root, ...segments), { recursive: true });
   }
+
+  // node_modules cache
+  fs.mkdirSync(path.resolve(root, SUBDIRS.nodeModules), { recursive: true });
+
   return root;
 }
 
@@ -171,13 +195,12 @@ export interface SymlinkConfig {
 /**
  * Default symlink configuration for Loop projects.
  *
- * - node_modules → shared cache via Junction
- * - .sandcastle  → shared cache via Junction (prompt templates change rarely)
- * Everything else copies normally.
+ * - node_modules → shared cache via Junction (gitignored, large, infrequently changed)
+ * Everything else copies normally (sandcastle prompts are in git, worktree already has them).
  */
 export function defaultSymlinkConfig(): SymlinkConfig {
   return {
-    symlinkPaths: ["node_modules", ".sandcastle"],
+    symlinkPaths: ["node_modules"],
     copyPaths: [
       // Default paths that should always be copied:
       // (empty — everything not in symlinkPaths is a copy)
@@ -187,6 +210,9 @@ export function defaultSymlinkConfig(): SymlinkConfig {
 
 /**
  * Create junctions/symlinks inside a worktree for the configured paths.
+ *
+ * Currently supports node_modules (the only gitignored large directory
+ * that benefits from sharing across worktrees).
  *
  * @param worktreeDir - Absolute path to the worktree root
  * @param config - Symlink configuration
@@ -203,19 +229,59 @@ export function setupWorktreeSymlinks(
     const linkTarget = path.resolve(worktreeDir, relPath);
     const cacheSource = path.resolve(cacheRoot, SUBDIRS.nodeModules);
 
-    // For node_modules, cache source is the shared node_modules cache.
-    // For .sandcastle, cache source is the project's own .sandcastle dir.
-    // (In practice, only node_modules is cached; .sandcastle is small.)
-    const source =
-      relPath === "node_modules"
-        ? cacheSource
-        : path.resolve(process.cwd(), relPath);
+    // All symlinkPaths point to the shared node_modules cache.
+    // (Only node_modules is gitignored and benefits from caching.)
+    const source = cacheSource;
 
     // Ensure cache source exists
-    if (relPath === "node_modules") {
-      fs.mkdirSync(cacheSource, { recursive: true });
-    }
+    fs.mkdirSync(cacheSource, { recursive: true });
 
     createJunction(linkTarget, source);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sandcastle Directory Junctions
+//
+// Redirect sandcastle's hardcoded .sandcastle/worktrees/ and .sandcastle/logs/
+// directories to LOOP_DATA_DIR/sandcastle/worktrees/ and
+// LOOP_DATA_DIR/sandcastle/logs/ via junctions.
+// ---------------------------------------------------------------------------
+
+/**
+ * Relative paths (from project root) that sandcastle uses for worktrees and
+ * logs, which we redirect via junctions.
+ */
+const SANDCASTLE_REL_DIRS = {
+  worktrees: [".sandcastle", "worktrees"],
+  logs: [".sandcastle", "logs"],
+} as const;
+
+/**
+ * Set up junctions so that sandcastle's hardcoded paths
+ * (.sandcastle/worktrees, .sandcastle/logs) transparently point to
+ * LOOP_DATA_DIR/sandcastle/{worktrees,logs}/.
+ *
+ * Must be called once at startup, before any sandcastle operation.
+ * Idempotent: safe to call multiple times.
+ */
+export function setupSandcastleDirJunctions(dataDir?: string): void {
+  const root = dataDir ?? getLoopDataDir();
+
+  // Ensure backend directories exist
+  const backendWorktrees = path.resolve(root, ...SUBDIRS.sandcastleWorktrees);
+  const backendLogs = path.resolve(root, ...SUBDIRS.sandcastleLogs);
+  fs.mkdirSync(backendWorktrees, { recursive: true });
+  fs.mkdirSync(backendLogs, { recursive: true });
+
+  // Create junctions from .sandcastle/{worktrees,logs} -> LOOP_DATA_DIR/sandcastle/{worktrees,logs}
+  for (const [key, segments] of Object.entries(SANDCASTLE_REL_DIRS)) {
+    const junctionPath = path.resolve(process.cwd(), ...segments);
+    const targetPath = path.resolve(
+      root,
+      "sandcastle",
+      key as "worktrees" | "logs",
+    );
+    createJunction(junctionPath, targetPath);
   }
 }

@@ -27,3 +27,4 @@ npm-debug.log*
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.beads/interactions.jsonl

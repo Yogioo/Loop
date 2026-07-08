@@ -27,7 +27,6 @@ import * as path from "node:path";
 import { execSync } from "node:child_process";
 import {
   ensureCacheDirs,
-  getBeadsDbPath,
   defaultSymlinkConfig,
   setupWorktreeSymlinks,
   setupSandcastleDirJunctions,
@@ -130,9 +129,10 @@ const TARGET_DIR = targetIdx !== -1
 
 console.log(`目标目录：${TARGET_DIR}`);
 
-// 预检：目标目录必须是已提交的 git 仓库
+// 预检：确保 git 仓库有效（无 .git 则 init，无提交则空 commit）
 if (!fs.existsSync(path.join(TARGET_DIR, '.git'))) {
-  die(`错误：${TARGET_DIR} 不是 git 仓库。请先执行 git init。`);
+  console.log('目标目录不是 git 仓库，自动初始化...');
+  execSync('git init', { cwd: TARGET_DIR, stdio: 'inherit', timeout: 10_000 });
 }
 let BASE_BRANCH;
 try {
@@ -142,7 +142,10 @@ try {
     cwd: TARGET_DIR,
   }).trim();
 } catch {
-  die(`错误：${TARGET_DIR} 没有提交记录。请先 git add . && git commit -m "init"。`);
+  console.log('仓库无提交记录，自动创建初始提交...');
+  fs.writeFileSync(path.join(TARGET_DIR, '.gitkeep'), '');
+  execSync('git add .gitkeep && git commit -m "init"', { cwd: TARGET_DIR, stdio: 'inherit', timeout: 10_000 });
+  BASE_BRANCH = 'master';
 }
 
 // ---------------------------------------------------------------------------
@@ -154,10 +157,8 @@ try {
 // Beads 数据库使用目标目录自己的 .beads/。
 // ---------------------------------------------------------------------------
 const LOOP_DATA_DIR = ensureCacheDirs();
-// Beads 数据库路径：有 --target 时用目标目录的 .beads/，否则用缓存
-const BDS_DB_PATH = targetIdx !== -1
-  ? path.join(TARGET_DIR, '.beads')
-  : getBeadsDbPath(LOOP_DATA_DIR);
+// Beads 数据库：始终在目标目录下
+const BDS_DB_PATH = path.join(TARGET_DIR, '.beads');
 console.log(`Loop 数据目录：${LOOP_DATA_DIR}`);
 console.log(`Beads 数据库：${BDS_DB_PATH}`);
 

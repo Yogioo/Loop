@@ -122,10 +122,15 @@ const AGENTS = {
 // ---------------------------------------------------------------------------
 
 const args = process.argv.slice(2);
+// 解析目标目录：--target <dir> / 拖拽的文件夹 / 当前目录
 const targetIdx = args.indexOf("--target");
-const TARGET_DIR = targetIdx !== -1
-  ? path.resolve(args[targetIdx + 1] ?? ".")
-  : process.cwd();
+const barePath = args.find(a => !a.startsWith("-") && fs.existsSync(a) && fs.statSync(a).isDirectory());
+let TARGET_DIR = process.cwd();
+if (targetIdx !== -1) {
+  TARGET_DIR = path.resolve(args[targetIdx + 1] ?? ".");
+} else if (barePath) {
+  TARGET_DIR = path.resolve(barePath);
+}
 
 console.log(`目标目录：${TARGET_DIR}`);
 
@@ -173,7 +178,7 @@ console.log(`Sandcastle logs     → ${path.join(LOOP_DATA_DIR, "sandcastle", "l
 // ---------------------------------------------------------------------------
 
 /** 打印错误并等待按键再退出（防止双击闪退）。 */
-function die(msg) {
+function die(msg: string): void {
   console.error(msg);
   console.error('按任意键退出...');
   try {
@@ -324,7 +329,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     });
     console.log("bd dolt pull 完成。");
   } catch (err) {
-    console.warn("bd dolt pull 失败（继续使用本地数据）：", err?.message ?? err);
+    console.warn("bd dolt pull 失败（继续使用本地数据）：", (err as Error)?.message ?? err);
   }
 
   // -------------------------------------------------------------------------
@@ -335,7 +340,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   try {
     readyIssues = getReadyIssues();
   } catch (err) {
-    console.warn("bd ready --json 执行失败，跳过预检，直接运行 planner：", err?.message ?? err);
+    console.warn("bd ready --json 执行失败，跳过预检，直接运行 planner：", (err as Error)?.message ?? err);
     readyIssues = [{ _fallback: true }]; // 非空哨兵，确保 planner 运行
   }
 
@@ -581,7 +586,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     });
     console.log("bd dolt push 完成。");
   } catch (err) {
-    console.warn("bd dolt push 失败：", err?.message ?? err);
+    console.warn("bd dolt push 失败：", (err as Error)?.message ?? err);
   }
 }
 

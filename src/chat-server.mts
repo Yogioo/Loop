@@ -15,10 +15,11 @@ import { execSync } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // Paths
-// __dirname: works in both ESM (tsx) and CJS (SEA bundle)
-const __dirname = (() => {
-  if (typeof __dirname !== 'undefined') return __dirname; // CJS
-  return path.dirname(fileURLToPath(import.meta.url));     // ESM
+// In CJS (SEA bundle), __dirname is a built-in global; in ESM (tsx) we compute it.
+const __dirname: string = (() => {
+  // @ts-expect-error — CJS global, only available in bundled build
+  if (typeof __dirname !== 'undefined') return __dirname;
+  return path.dirname(fileURLToPath(import.meta.url));
 })();
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
 

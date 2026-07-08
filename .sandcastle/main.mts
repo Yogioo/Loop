@@ -143,6 +143,39 @@ setupSandcastleDirJunctions(LOOP_DATA_DIR);
 console.log(`Sandcastle worktrees → ${path.join(LOOP_DATA_DIR, "sandcastle", "worktrees")}`);
 console.log(`Sandcastle logs     → ${path.join(LOOP_DATA_DIR, "sandcastle", "logs")}`);
 
+// ---------------------------------------------------------------------------
+// 启动预检：bd 命令是否存在 + beads 数据库是否已初始化
+// ---------------------------------------------------------------------------
+
+/** 检查 bd 命令是否可用，不可用则直接退出。 */
+function ensureBdCommand(): void {
+  try {
+    execSync("bd --version", { encoding: "utf-8", timeout: 10_000, stdio: "pipe" });
+  } catch {
+    console.error("错误：未找到 bd 命令。请先安装 beads：npm install -g @gastownhall/beads");
+    process.exit(1);
+  }
+}
+
+/**
+ * 检查 beads 数据库是否已初始化（是否存在 .dolt 目录）。
+ * 未初始化则自动执行 bd bootstrap。
+ */
+function ensureBeadsDb(dbPath: string): void {
+  const doltDir = path.join(dbPath, ".dolt");
+  if (fs.existsSync(doltDir)) return;
+  console.log("beads 数据库未初始化，执行 bd bootstrap…");
+  execSync(`bd bootstrap --db "${dbPath}"`, {
+    encoding: "utf-8",
+    timeout: 30_000,
+    stdio: "inherit",
+  });
+  console.log("beads 初始化完成。");
+}
+
+ensureBdCommand();
+ensureBeadsDb(BDS_DB_PATH);
+
 // plan→execute→merge 循环无限运行，直到所有 issue 处理完毕。
 // 没有待处理 issue 时会进入 IDLE_SLEEP_SECONDS 休眠，不会空转。
 const MAX_ITERATIONS = Infinity;

@@ -28,7 +28,6 @@ import { execSync } from "node:child_process";
 import {
   ensureCacheDirs,
   getBeadsDbPath,
-  getLoopDataDir,
   defaultSymlinkConfig,
   setupWorktreeSymlinks,
   setupSandcastleDirJunctions,
@@ -119,21 +118,37 @@ const AGENTS = {
 
 // 宿主仓库当前分支，作为审查 diff 的基准分支。
 // 在循环外获取一次，避免反复调用 git。
+// ---------------------------------------------------------------------------
+// 目标目录 — 通过 --target <dir> 指定要操作的仓库（默认 Loop 自身）。
+// ---------------------------------------------------------------------------
+
+const args = process.argv.slice(2);
+const targetIdx = args.indexOf("--target");
+const TARGET_DIR = targetIdx !== -1
+  ? path.resolve(args[targetIdx + 1] ?? ".")
+  : path.resolve(import.meta.dirname ?? __dirname, "..");
+
+console.log(`目标目录：${TARGET_DIR}`);
+
 const BASE_BRANCH = execSync("git rev-parse --abbrev-ref HEAD", {
   encoding: "utf-8",
   timeout: 10_000,
-  cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+  cwd: TARGET_DIR,
 }).trim();
 
 // ---------------------------------------------------------------------------
 // Loop v2 — 缓存目录初始化
 //
-// 所有运行时产物（beads 数据库、沙箱日志、node_modules 缓存）
+// 所有运行时产物（沙箱日志、node_modules 缓存）
 // 统一迁到 LOOP_DATA_DIR（默认 %LOCALAPPDATA%/Loop/），
 // 工作目录只保留源码和模板配置。
+// Beads 数据库使用目标目录自己的 .beads/。
 // ---------------------------------------------------------------------------
 const LOOP_DATA_DIR = ensureCacheDirs();
-const BDS_DB_PATH = getBeadsDbPath(LOOP_DATA_DIR);
+// Beads 数据库路径：有 --target 时用目标目录的 .beads/，否则用缓存
+const BDS_DB_PATH = targetIdx !== -1
+  ? path.join(TARGET_DIR, '.beads')
+  : getBeadsDbPath(LOOP_DATA_DIR);
 console.log(`Loop 数据目录：${LOOP_DATA_DIR}`);
 console.log(`Beads 数据库：${BDS_DB_PATH}`);
 
@@ -158,23 +173,24 @@ function ensureBdCommand(): void {
 }
 
 /**
- * 检查 beads 数据库是否已初始化（是否存在 .dolt 目录）。
- * 未初始化则自动执行 bd bootstrap。
+ * 检查 beads 数据库是否已初始化。
+ * 目标项目：检查 .beads/config.yaml；默认（Loop 自身）：检查缓存路径。
+ * 未初始化则自动执行 bd init。
  */
-function ensureBeadsDb(dbPath: string): void {
-  const doltDir = path.join(dbPath, ".dolt");
-  if (fs.existsSync(doltDir)) return;
-  console.log("beads 数据库未初始化，执行 bd bootstrap…");
-  execSync(`bd bootstrap --db "${dbPath}"`, {
-    encoding: "utf-8",
+function ensureBeadsDb(dbPath: string, runInDir: string): void {
+  if (fs.existsSync(path.join(dbPath, 'config.yaml'))) return;
+  console.log('beads 数据库未初始化，执行 bd init…');
+  execSync('bd init', {
+    encoding: 'utf-8',
     timeout: 30_000,
-    stdio: "inherit",
+    cwd: runInDir,
+    stdio: 'inherit',
   });
-  console.log("beads 初始化完成。");
+  console.log('beads 初始化完成。');
 }
 
 ensureBdCommand();
-ensureBeadsDb(BDS_DB_PATH);
+ensureBeadsDb(BDS_DB_PATH, TARGET_DIR);
 
 // plan→execute→merge 循环无限运行，直到所有 issue 处理完毕。
 // 没有待处理 issue 时会进入 IDLE_SLEEP_SECONDS 休眠，不会空转。
@@ -205,7 +221,7 @@ function getReadyIssues(): unknown[] {
   const raw = execSync(`bd ready --json ${beadsDbFlag()}`, {
     encoding: "utf-8",
     timeout: 30_000,
-    cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+    cwd: TARGET_DIR,
   });
   return JSON.parse(raw);
 }
@@ -278,7 +294,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     execSync(`bd dolt pull --remote origin ${beadsDbFlag()}`, {
       encoding: "utf-8",
       timeout: 30_000,
-      cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+      cwd: TARGET_DIR,
       stdio: "pipe",
     });
     console.log("bd dolt pull 完成。");
@@ -535,7 +551,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     execSync(`bd dolt push --remote origin ${beadsDbFlag()}`, {
       encoding: "utf-8",
       timeout: 30_000,
-      cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+      cwd: TARGET_DIR,
       stdio: "pipe",
     });
     console.log("bd dolt push 完成。");

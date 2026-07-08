@@ -61,11 +61,22 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
   // Parse JSON bodies
   app.use(express.json());
 
+  // Project skills directory
+  const skillsDir = path.resolve(__dirname, '..', 'skills');
+  const grillMeSkillPath = path.join(skillsDir, 'grill-me', 'SKILL.md');
+  const toPrdSkillPath = path.join(skillsDir, 'to-prd', 'SKILL.md');
+  const toIssuesSkillPath = path.join(skillsDir, 'to-issues', 'SKILL.md');
+
   // Create PiRpcManager
   const manager = new PiRpcManager({
     // On Windows, npm-installed global commands are .cmd files
     command: options.piCommand ?? (process.platform === 'win32' ? 'pi.cmd' : 'pi'),
-    args: options.piArgs ?? ['--mode', 'rpc'],
+    args: options.piArgs ?? [
+      '--mode', 'rpc',
+      '--append-system-prompt', grillMeSkillPath,
+      '--skill', toPrdSkillPath,
+      '--skill', toIssuesSkillPath,
+    ],
     cwd: options.cwd,
     env: options.piEnv,
     restartDelay: 2000,
@@ -215,15 +226,18 @@ function getInlineHtml(): string {
   #send-btn { padding: 10px 20px; background: #4a90d9; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
   #send-btn:hover { background: #357abd; }
   #send-btn:disabled { background: #555; cursor: not-allowed; }
+  .skill-btn { padding: 8px 14px; background: transparent; color: #888; border: 1px solid #444; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .skill-btn:hover { color: #e0e0e0; border-color: #4a90d9; }
+  .skill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   #status { font-size: 12px; padding: 4px 24px; color: #888; }
 </style>
 </head>
 <body>
 <div id="header"><h1>Loop Chat</h1></div>
-<div id="messages">
-  <div class="message pi">Hi! I'm pi. How can I help you?</div>
-</div>
+<div id="messages"></div>
 <div id="input-area">
+  <button class="skill-btn" onclick="sendSkill('to-prd')" title="生成 PRD">📋 PRD</button>
+  <button class="skill-btn" onclick="sendSkill('to-issues')" title="拆成 Issues">📝 Issues</button>
   <input type="text" id="input" placeholder="Type your message..." autofocus>
   <button id="send-btn" onclick="send()">Send</button>
 </div>
@@ -235,6 +249,27 @@ function getInlineHtml(): string {
   const status = document.getElementById('status');
 
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+
+  async function sendSkill(name) {
+    const text = '/skill:' + name;
+    addMessage(text, 'user');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: text }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        addMessage(err.error || 'Request failed', 'error');
+      } else {
+        const reply = await res.text();
+        addMessage(reply || '(empty response)', 'pi');
+      }
+    } catch (err) {
+      addMessage('Network error: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function send() {
     const text = input.value.trim();

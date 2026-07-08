@@ -259,30 +259,37 @@ export class PiRpcManager {
           const response = line as unknown as RpcResponse;
           // Match by id or command type
           if (response.id === request.cmdId || response.command === request.commandType) {
-            cleanup();
-            if (request.timer) clearTimeout(request.timer);
-
-            if (response.success) {
-              if (request.type === 'prompt') {
-                (request.resolve as (r: PromptResult) => void)({
-                  text: request.textAccumulator || '',
-                  success: true,
-                  raw: response,
-                });
-              } else {
-                (request.resolve as (r: RpcResponse) => void)(response);
-              }
-            } else {
+            if (!response.success) {
+              // Command rejected — fail immediately
+              cleanup();
+              if (request.timer) clearTimeout(request.timer);
               request.reject(new Error(response.error ?? `Command ${response.command} failed`));
+              resolveExec();
+              return;
             }
-            resolveExec();
+
+            // For prompts, the response only means "accepted" — the real
+            // work streams via message_update/agent_end. Don't resolve yet.
+            if (request.type !== 'prompt') {
+              cleanup();
+              if (request.timer) clearTimeout(request.timer);
+              (request.resolve as (r: RpcResponse) => void)(response);
+              resolveExec();
+            }
           }
           return;
         }
 
-        // agent_end signals stream completion for prompts, but we wait for "response" event
+        // agent_end signals stream completion for prompts
         if (type === 'agent_end' && request.type === 'prompt') {
-          // Text has already been accumulated via message_update events
+          cleanup();
+          if (request.timer) clearTimeout(request.timer);
+          (request.resolve as (r: PromptResult) => void)({
+            text: request.textAccumulator || '',
+            success: true,
+            raw: { type: 'response', command: request.commandType, success: true } as RpcResponse,
+          });
+          resolveExec();
           return;
         }
       };
@@ -357,7 +364,16 @@ export class PiRpcManager {
   private async spawn(): Promise<void> {
     if (this._stopping) throw new Error('Stopping');
 
-    const proc = spawn(this.command, this.args, {
+    // On Windows, .cmd/.bat files cannot be spawned directly — they must
+    // be executed through cmd.exe. Node v24+ enforces this (spawn EINVAL).
+    const isWindowsCmd = process.platform === 'win32' &&
+      (this.command.toLowerCase().endsWith('.cmd') || this.command.toLowerCase().endsWith('.bat'));
+    const spawnCommand = isWindowsCmd ? (process.env.ComSpec || 'cmd.exe') : this.command;
+    const spawnArgs = isWindowsCmd
+      ? ['/d', '/s', '/c', `${this.command} ${this.args.join(' ')}`]
+      : this.args;
+
+    const proc = spawn(spawnCommand, spawnArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: this.cwd,
       env: { ...process.env, ...this.env },
@@ -375,8 +391,8 @@ export class PiRpcManager {
 
     // Process stderr (just log for debugging)
     proc.stderr!.setEncoding('utf-8');
-    proc.stderr!.on('data', (_data: string) => {
-      // Silently consume stderr
+    proc.stderr!.on('data', (data: string) => {
+      process.stderr.write(`[pi stderr] ${data}`);
     });
 
     // Wait for the process to become ready (stay alive for 500ms)

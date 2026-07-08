@@ -52,6 +52,9 @@ npm start
 # 4. 启动后端（自动实现 issues）
 npm run loop
 # 或双击 loop.bat
+
+# （可选）打包为独立 exe，无需 Node.js
+双击 build.bat
 ```
 
 ## 在任意项目中运行
@@ -70,7 +73,7 @@ npm run loop -- --target /path/to/your-project
 
 ## 打包为独立 exe
 
-Loop 可以打包为不依赖 Node.js 的独立 `.exe`：
+Loop 可以打包为不依赖 Node.js 的独立 `.exe`。双击 `build.bat` 或运行：
 
 ```bash
 npm run build
@@ -116,5 +119,6 @@ loop/
 │   ├── loop-frontend.exe
 │   └── loop-backend.exe
 ├── start.bat              # 启动前端
-└── loop.bat               # 启动后端
+├── loop.bat               # 启动后端
+└── build.bat              # 打包 exe
 ```

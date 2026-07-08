@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loop Chat</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; }
+  #header { background: #16213e; padding: 16px 24px; border-bottom: 1px solid #0f3460; display: flex; align-items: center; gap: 12px; }
+  #header h1 { font-size: 18px; font-weight: 600; flex: 1; }
+  #new-session-btn { padding: 6px 14px; background: #2a2a4e; color: #ccc; border: 1px solid #0f3460; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  #new-session-btn:hover { background: #3a3a6e; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .message { padding: 10px 14px; border-radius: 8px; max-width: 80%; line-height: 1.5; white-space: pre-wrap; }
+  .message.user { background: #0f3460; align-self: flex-end; }
+  .message.pi { background: #16213e; align-self: flex-start; border: 1px solid #0f3460; }
+  .message.error { background: #3d0000; align-self: flex-start; border: 1px solid #6b0000; color: #ff6b6b; }
+  .message.thinking { background: #1a1a3e; align-self: flex-start; border: 1px dashed #0f3460; color: #888; font-style: italic; }
+  #input-area { display: flex; gap: 8px; padding: 12px 24px; background: #16213e; border-top: 1px solid #0f3460; }
+  #input { flex: 1; padding: 10px 14px; border: 1px solid #0f3460; border-radius: 6px; background: #1a1a2e; color: #e0e0e0; font-size: 14px; outline: none; }
+  #input:focus { border-color: #4a90d9; }
+  #send-btn { padding: 10px 20px; background: #4a90d9; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+  #send-btn:hover { background: #357abd; }
+  #send-btn:disabled { background: #555; cursor: not-allowed; }
+  #status { font-size: 12px; padding: 4px 24px; color: #888; }
+  @media (max-width: 600px) {
+    .message { max-width: 95%; }
+    #messages { padding: 12px; }
+    #input-area { padding: 8px 12px; }
+    #header { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>Loop Chat</h1>
+  <button id="new-session-btn" onclick="newSession()">New Session</button>
+</div>
+<div id="messages">
+  <div class="message pi">Hi! I'm pi. How can I help you?</div>
+</div>
+<div id="input-area">
+  <input type="text" id="input" placeholder="Type your message..." autofocus>
+  <button id="send-btn" onclick="send()">Send</button>
+</div>
+<div id="status">Ready</div>
+<script>
+  const input = document.getElementById('input');
+  const messages = document.getElementById('messages');
+  const sendBtn = document.getElementById('send-btn');
+  const status = document.getElementById('status');
+
+  // Send on Enter
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  });
+
+  async function send() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    addMessage(text, 'user');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        addMessage(err.error || 'Request failed', 'error');
+      } else {
+        const reply = await res.text();
+        addMessage(reply || '(empty response)', 'pi');
+      }
+    } catch (err) {
+      addMessage('Network error: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function newSession() {
+    setLoading(true);
+    status.textContent = 'Creating new session...';
+
+    try {
+      const res = await fetch('/new-session', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        // Clear messages and show welcome
+        messages.innerHTML = '';
+        addMessage('Session reset. How can I help you?', 'pi');
+      } else {
+        addMessage('Failed to create new session', 'error');
+      }
+    } catch (err) {
+      addMessage('Error creating new session: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function addMessage(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'message ' + cls;
+    div.textContent = text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function setLoading(loading) {
+    sendBtn.disabled = loading;
+    sendBtn.textContent = loading ? 'Sending...' : 'Send';
+    status.textContent = loading ? 'Waiting for pi...' : 'Ready';
+  }
+</script>
+</body>
+</html>

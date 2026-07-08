@@ -13,5 +13,6 @@
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": [".sandcastle/**/*.ts", ".sandcastle/**/*.mts"]
+  "include": [".sandcastle/**/*.ts", ".sandcastle/**/*.mts", "src/**/*.mts", "src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

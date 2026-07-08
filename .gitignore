@@ -18,6 +18,12 @@ Desktop.ini
 *.swo
 *~
 
+# Sandcastle worktrees
+.sandcastle/worktrees/
+
+# Test target
+test-target/
+
 # Logs
 *.log
 npm-debug.log*

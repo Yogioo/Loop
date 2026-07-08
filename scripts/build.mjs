@@ -20,6 +20,16 @@ function run(cmd, opts) {
   execSync(cmd, { cwd: opts?.cwd ?? ROOT, stdio: "inherit", timeout: 120_000 });
 }
 
+function sleepSync(ms) {
+  const sec = Math.ceil(ms / 1000);
+  // Use a command that blocks for the given time
+  if (process.platform === "win32") {
+    execSync(`ping -n ${sec + 1} 127.0.0.1`, { stdio: "ignore", timeout: ms + 5000 });
+  } else {
+    execSync(`sleep ${ms / 1000}`, { stdio: "ignore", timeout: ms + 5000 });
+  }
+}
+
 /** Bundle TS → CJS, fixing import.meta.url → CJS __filename / __dirname. */
 async function bundle(entry, name) {
   const outfile = path.join(DIST, `${name}.cjs`);
@@ -78,8 +88,20 @@ function buildExe(bundlePath, exeName) {
   // Generate blob
   run(`node --experimental-sea-config "${configPath}"`, { cwd: dir });
 
-  // Copy node.exe and inject blob
+  // Kill any running instance before overwriting
   const exePath = path.join(DIST, exeName);
+  try {
+    if (fs.existsSync(exePath)) fs.unlinkSync(exePath);
+  } catch {
+    // On Windows, try taskkill then retry
+    if (process.platform === "win32") {
+      try { execSync(`taskkill /f /im ${exeName}`, { stdio: "ignore" }); } catch {}
+      sleepSync(1000);
+      try { fs.unlinkSync(exePath); } catch { /* give up, copyFile will fail with clear error */ }
+    }
+  }
+
+  // Copy node.exe and inject blob
   fs.copyFileSync(process.execPath, exePath);
 
   try { execSync("npx postject --version", { stdio: "pipe", timeout: 5000 }); }

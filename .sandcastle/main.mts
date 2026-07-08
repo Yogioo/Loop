@@ -24,6 +24,7 @@ import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import { z } from "zod";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Windows shell quoting 修复
@@ -110,6 +111,31 @@ const AGENTS = {
 // 如果 backlog 很大可以调高；快速冒烟测试时调低。
 const MAX_ITERATIONS = 10;
 
+// 没有可处理工单时的休眠秒数。
+// 避免空转 tight loop 浪费资源。
+const IDLE_SLEEP_SECONDS = parseInt(
+  process.env.IDLE_SLEEP_SECONDS ?? "60",
+  10,
+);
+
+// ---------------------------------------------------------------------------
+// 轻量级预检工具
+// ---------------------------------------------------------------------------
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 运行 bd ready --json，返回原始 issue 数组。失败时抛异常。 */
+function getReadyIssues(): unknown[] {
+  const raw = execSync("bd ready --json", {
+    encoding: "utf-8",
+    timeout: 30_000,
+    cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+  });
+  return JSON.parse(raw);
+}
+
 // 阶段二中同时运行的 issue 实现流水线数量上限。
 // 每条流水线 = 一个 implementer + 一个 reviewer（同沙箱、同分支），
 // 限制并发以防止 LLM API 速率限制和系统资源耗尽。
@@ -166,6 +192,26 @@ function semaphore(limit: number) {
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== 第 ${iteration}/${MAX_ITERATIONS} 轮迭代 ===\n`);
+
+  // -------------------------------------------------------------------------
+  // 预检：在调用昂贵的 planner agent 之前，先用本地 CLI 检查是否有待处理
+  // issue。bd ready 本身已排除被显式阻塞的工单，若返回空则直接跳过 planner。
+  // -------------------------------------------------------------------------
+  let readyIssues: unknown[];
+  try {
+    readyIssues = getReadyIssues();
+  } catch (err) {
+    console.warn("bd ready --json 执行失败，跳过预检，直接运行 planner：", err);
+    readyIssues = [{ _fallback: true }]; // 非空哨兵，确保 planner 运行
+  }
+
+  if (readyIssues.length === 0) {
+    console.log(
+      `没有待处理 issue。${IDLE_SLEEP_SECONDS} 秒后重试…`,
+    );
+    await sleep(IDLE_SLEEP_SECONDS * 1000);
+    continue;
+  }
 
   // -------------------------------------------------------------------------
   // 阶段一：规划
@@ -232,9 +278,13 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   const issues = plan.issues;
 
   if (issues.length === 0) {
-    // 没有无阻塞的工作——要么全部完成，要么全部被阻塞。
-    console.log("没有无阻塞的 issue 需要处理。退出。");
-    break;
+    // 没有无阻塞的工作——全部完成或全部被阻塞。
+    // bd ready 本身已过滤显式阻塞，此分支极少触发，作为兜底。
+    console.log(
+      `planner 返回空计划。${IDLE_SLEEP_SECONDS} 秒后重试…`,
+    );
+    await sleep(IDLE_SLEEP_SECONDS * 1000);
+    continue;
   }
 
   console.log(

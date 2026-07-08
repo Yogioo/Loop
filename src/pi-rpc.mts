@@ -135,13 +135,10 @@ export class PiRpcManager {
         try { proc.stdin?.end(); } catch { /* ignore */ }
 
         // Wait for graceful exit, then force kill
-        await Promise.race([
-          new Promise<void>((resolve) => {
-            proc.on('exit', () => resolve());
-            // Also resolve after a short delay regardless
-            setTimeout(() => resolve(), 3000);
-          }),
-        ]);
+        await new Promise<void>((resolve) => {
+          proc.on('exit', () => resolve());
+          setTimeout(() => resolve(), 3000);
+        });
 
         try {
           if (!proc.killed) proc.kill();
@@ -248,7 +245,7 @@ export class PiRpcManager {
   }
 
   private async executeRequest(request: QueuedRequest): Promise<void> {
-    return new Promise<void>((resolveExec, rejectExec) => {
+    return new Promise<void>((resolveExec) => {
       // Set as current active request for line handling
       const handler = (line: Record<string, unknown>) => {
         const type = line.type as string | undefined;
@@ -476,20 +473,8 @@ export class PiRpcManager {
   private handleLine(obj: Record<string, unknown>): void {
     const type = obj.type as string | undefined;
 
-    // Response - forward to queue handler
-    if (type === 'response') {
-      this.emitter.emit('unhandled', obj);
-      return;
-    }
-
-    // Agent events
-    if (type === 'message_update') {
-      this.emitter.emit('unhandled', obj);
-      return;
-    }
-
-    if (type === 'agent_end') {
-      // Still forward in case queue handler needs it
+    // Forward events that serialised request handlers process
+    if (type === 'response' || type === 'message_update' || type === 'agent_end') {
       this.emitter.emit('unhandled', obj);
       return;
     }
@@ -504,11 +489,6 @@ export class PiRpcManager {
       type === '_ready'
     ) {
       return;
-    }
-
-    // Unknown events
-    if (type !== undefined) {
-      // Don't emit these as they could interfere with queue handlers
     }
   }
 

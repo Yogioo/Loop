@@ -20,7 +20,6 @@ import { createInterface } from 'readline';
 
 // Configuration from environment
 const RESPONSE_TEXT = process.env.MOCK_PI_RESPONSE ?? 'Hello from mock pi!';
-const SEND_RESPONSE_EVENT = process.env.MOCK_PI_SEND_EVENT !== 'false';
 
 let requestCount = 0;
 let shutdownTimer = null;

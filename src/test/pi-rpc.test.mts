@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { PiRpcManager, type PromptResult } from '../pi-rpc.mts';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_PI_PATH = path.resolve(__dirname, 'helpers', 'mock-pi-rpc.mjs');

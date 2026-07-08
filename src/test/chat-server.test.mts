@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createChatServer } from '../chat-server.mts';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import * as http from 'http';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as http from 'node:http';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MOCK_PI_PATH = path.resolve(__dirname, 'helpers', 'mock-pi-rpc.mjs');

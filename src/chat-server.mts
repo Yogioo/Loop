@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { PiRpcManager } from './pi-rpc.mts';
+import { execSync } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -70,6 +71,9 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
     restartDelay: 2000,
   });
 
+  const toErrorMessage = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+
   // -----------------------------------------------------------------------
   // Routes
   // -----------------------------------------------------------------------
@@ -117,8 +121,7 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
       res.setHeader('content-type', 'text/plain; charset=utf-8');
       res.status(200).send(result.text);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
+      res.status(500).json({ error: toErrorMessage(err) });
     }
   });
 
@@ -128,8 +131,7 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
       const result = await manager.sendCommand('new_session');
       res.json(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
+      res.status(500).json({ error: toErrorMessage(err) });
     }
   });
 
@@ -142,7 +144,7 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
     await manager.start();
   } catch (err) {
     // If pi isn't installed, we'll still serve the page but chat will fail
-    console.warn('Failed to start pi RPC process:', err instanceof Error ? err.message : String(err));
+    console.warn('Failed to start pi RPC process:', toErrorMessage(err));
   }
 
   return new Promise<ChatServerResult>((resolve) => {
@@ -175,13 +177,10 @@ function openBrowser(url: string): void {
   const platform = process.platform;
   try {
     if (platform === 'win32') {
-      const { execSync } = require('node:child_process');
       execSync(`start "" "${url}"`, { timeout: 5000, windowsHide: true });
     } else if (platform === 'darwin') {
-      const { execSync } = require('node:child_process');
       execSync(`open "${url}"`, { timeout: 5000 });
     } else {
-      const { execSync } = require('node:child_process');
       execSync(`xdg-open "${url}"`, { timeout: 5000 });
     }
   } catch {

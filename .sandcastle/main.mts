@@ -324,7 +324,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     });
     console.log("bd dolt pull 完成。");
   } catch (err) {
-    console.warn("bd dolt pull 失败（继续使用本地数据）：", err);
+    console.warn("bd dolt pull 失败（继续使用本地数据）：", err?.message ?? err);
   }
 
   // -------------------------------------------------------------------------
@@ -335,7 +335,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   try {
     readyIssues = getReadyIssues();
   } catch (err) {
-    console.warn("bd ready --json 执行失败，跳过预检，直接运行 planner：", err);
+    console.warn("bd ready --json 执行失败，跳过预检，直接运行 planner：", err?.message ?? err);
     readyIssues = [{ _fallback: true }]; // 非空哨兵，确保 planner 运行
   }
 
@@ -581,7 +581,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     });
     console.log("bd dolt push 完成。");
   } catch (err) {
-    console.warn("bd dolt push 失败：", err);
+    console.warn("bd dolt push 失败：", err?.message ?? err);
   }
 }
 

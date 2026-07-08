@@ -16,6 +16,7 @@ import * as os from "node:os";
 
 describe("getLoopDataDir", () => {
   beforeEach(() => {
+    // Save and clear env vars for test isolation
     vi.restoreAllMocks();
   });
 
@@ -56,15 +57,23 @@ describe("getLoopDataDir", () => {
   });
 });
 
-describe("getBeadsDbPath / getSandcastlePath / getLogsPath", () => {
+describe("getBeadsDbPath / getSandcastlePath / getSandcastleLogsPath / getSandcastleWorktreesPath", () => {
   it("returns correct subdirectory paths", async () => {
-    const { getBeadsDbPath, getSandcastlePath, getLogsPath } = await import(
-      "./cache.ts"
-    );
+    const {
+      getBeadsDbPath,
+      getSandcastlePath,
+      getSandcastleLogsPath,
+      getSandcastleWorktreesPath,
+    } = await import("./cache.ts");
     const base = "C:\\TestData\\Loop";
     expect(getBeadsDbPath(base)).toBe(path.resolve(base, "beads"));
     expect(getSandcastlePath(base)).toBe(path.resolve(base, "sandcastle"));
-    expect(getLogsPath(base)).toBe(path.resolve(base, "logs"));
+    expect(getSandcastleLogsPath(base)).toBe(
+      path.resolve(base, "sandcastle", "logs"),
+    );
+    expect(getSandcastleWorktreesPath(base)).toBe(
+      path.resolve(base, "sandcastle", "worktrees"),
+    );
   });
 
   it("uses default data dir when not provided", async () => {
@@ -98,7 +107,8 @@ describe("ensureCacheDirs", () => {
     expect(fs.existsSync(root)).toBe(true);
     expect(fs.existsSync(path.resolve(root, "beads"))).toBe(true);
     expect(fs.existsSync(path.resolve(root, "sandcastle"))).toBe(true);
-    expect(fs.existsSync(path.resolve(root, "logs"))).toBe(true);
+    expect(fs.existsSync(path.resolve(root, "sandcastle", "logs"))).toBe(true);
+    expect(fs.existsSync(path.resolve(root, "sandcastle", "worktrees"))).toBe(true);
     expect(fs.existsSync(path.resolve(root, "node_modules"))).toBe(true);
   });
 
@@ -234,11 +244,11 @@ describe("setupWorktreeSymlinks", () => {
 // ---------------------------------------------------------------------------
 
 describe("defaultSymlinkConfig", () => {
-  it("includes node_modules and .sandcastle in symlinkPaths", async () => {
+  it("includes node_modules in symlinkPaths", async () => {
     const { defaultSymlinkConfig } = await import("./cache.ts");
     const config = defaultSymlinkConfig();
     expect(config.symlinkPaths).toContain("node_modules");
-    expect(config.symlinkPaths).toContain(".sandcastle");
+    expect(config.symlinkPaths).not.toContain(".sandcastle");
   });
 });
 
@@ -247,5 +257,87 @@ describe("supportsJunctions", () => {
     const { supportsJunctions } = await import("./cache.ts");
     const result = supportsJunctions();
     expect(typeof result).toBe("boolean");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sandcastle directory junctions
+// ---------------------------------------------------------------------------
+
+describe("setupSandcastleDirJunctions", () => {
+  const tmpDir = path.resolve(
+    os.tmpdir(),
+    "loop-test-sandcastle-junction-" + Date.now(),
+  );
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    process.chdir(tmpDir);
+    // Create .sandcastle dir as it would exist in a real project
+    fs.mkdirSync(path.resolve(tmpDir, ".sandcastle"), { recursive: true });
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("creates junctions for .sandcastle/worktrees and .sandcastle/logs", async () => {
+    const { setupSandcastleDirJunctions } = await import("./cache.ts");
+    const dataDir = path.resolve(tmpDir, "loop-data");
+
+    setupSandcastleDirJunctions(dataDir);
+
+    // The junction paths should exist
+    expect(fs.existsSync(path.resolve(tmpDir, ".sandcastle", "worktrees"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.resolve(tmpDir, ".sandcastle", "logs"))).toBe(
+      true,
+    );
+
+    // The backend directories should exist
+    expect(
+      fs.existsSync(path.resolve(dataDir, "sandcastle", "worktrees")),
+    ).toBe(true);
+    expect(fs.existsSync(path.resolve(dataDir, "sandcastle", "logs"))).toBe(
+      true,
+    );
+  });
+
+  it("is idempotent when junctions already exist", async () => {
+    const { setupSandcastleDirJunctions } = await import("./cache.ts");
+    const dataDir = path.resolve(tmpDir, "loop-data");
+
+    setupSandcastleDirJunctions(dataDir); // first call
+    expect(() => setupSandcastleDirJunctions(dataDir)).not.toThrow(); // second call
+  });
+
+  it("redirects writes through the junction to the backend dir", async () => {
+    const { setupSandcastleDirJunctions } = await import("./cache.ts");
+    const dataDir = path.resolve(tmpDir, "loop-data");
+
+    setupSandcastleDirJunctions(dataDir);
+
+    // Write a test file through the junction
+    const worktreeFile = path.resolve(
+      tmpDir,
+      ".sandcastle",
+      "worktrees",
+      "test-file.txt",
+    );
+    fs.writeFileSync(worktreeFile, "hello through junction");
+
+    // Verify it's readable from the backend dir
+    const backendFile = path.resolve(
+      dataDir,
+      "sandcastle",
+      "worktrees",
+      "test-file.txt",
+    );
+    expect(fs.readFileSync(backendFile, "utf-8")).toBe(
+      "hello through junction",
+    );
   });
 });

@@ -325,7 +325,16 @@ const isMain = process.argv[1] && (
 );
 
 if (isMain) {
-  createChatServer().catch((err) => {
+  // Parse --target <dir> to set pi's working directory (defaults to CWD)
+  const args = process.argv.slice(2);
+  const targetIdx = args.indexOf('--target');
+  const cwd = targetIdx !== -1 ? path.resolve(args[targetIdx + 1] ?? '.') : undefined;
+
+  if (cwd) {
+    console.log(`Target directory: ${cwd}`);
+  }
+
+  createChatServer({ cwd }).catch((err) => {
     console.error('Failed to start server:', err);
     process.exit(1);
   });

@@ -1,4 +1,4 @@
 @echo off
 echo === Loop Frontend (Chat Server) ===
-call npm start
+call npm start -- %*
 pause

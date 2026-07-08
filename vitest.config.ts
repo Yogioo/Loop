@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/test/**/*.test.mts'],
+    include: ['src/test/**/*.test.mts', '.sandcastle/**/*.test.ts'],
     testTimeout: 15000,
     hookTimeout: 10000,
     // On Windows, some processes need extra time

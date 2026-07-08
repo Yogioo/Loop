@@ -107,9 +107,9 @@ const AGENTS = {
   },
 };
 
-// plan→execute→merge 循环的最大迭代次数。
-// 如果 backlog 很大可以调高；快速冒烟测试时调低。
-const MAX_ITERATIONS = 10;
+// plan→execute→merge 循环无限运行，直到所有 issue 处理完毕。
+// 没有待处理 issue 时会进入 IDLE_SLEEP_SECONDS 休眠，不会空转。
+const MAX_ITERATIONS = Infinity;
 
 // 没有可处理工单时的休眠秒数。
 // 避免空转 tight loop 浪费资源。
@@ -191,7 +191,7 @@ function semaphore(limit: number) {
 // ---------------------------------------------------------------------------
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
-  console.log(`\n=== 第 ${iteration}/${MAX_ITERATIONS} 轮迭代 ===\n`);
+  console.log(`\n=== 第 ${iteration} 轮迭代 ===\n`);
 
   // -------------------------------------------------------------------------
   // 预检：在调用昂贵的 planner agent 之前，先用本地 CLI 检查是否有待处理

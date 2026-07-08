@@ -4,9 +4,24 @@ Agent 循环，用于 Agent 编排和开发项目。
 
 ## 依赖
 
-- **[pi](https://pi.dev)** — AI 编程助手（[GitHub](https://github.com/badlogic/pi-mono)）
-- **[beads](https://github.com/zenozeng/beads)** — 构建与任务编排工具
-- **[pi-feishu-lark](https://www.npmjs.com/package/pi-feishu-lark)**（可选）— 飞书/Lark 集成扩展
+| 工具 | 用途 | 安装 |
+|------|------|------|
+| **[pi](https://pi.dev)** | AI 编程助手 | `npm install -g @mariozechner/pi-coding-agent` |
+| **[beads](https://github.com/zenozeng/beads)** | 构建与任务编排 | `npm install -g beads` |
+| **[Git for Windows](https://git-scm.com/downloads/win)** | 提供 `cp`、`bash` 等命令 | [下载安装](https://git-scm.com/downloads/win) |
+| **[pi-feishu-lark](https://www.npmjs.com/package/pi-feishu-lark)**（可选） | 飞书/Lark 集成 | `pi install npm:pi-feishu-lark` |
+
+> **Windows 用户注意**：sandcastle 内部会调用 `cp` 命令复制 node_modules，部分钩子依赖 `bash`。\
+> 安装 Git for Windows 后，需将 `C:\Program Files\Git\usr\bin` 加入**系统环境变量** PATH，然后重启终端。\
+> \
+> ```powershell\
+> # PowerShell 管理员执行（永久添加）\
+> [Environment]::SetEnvironmentVariable(\\\
+>     'PATH',\\\
+>     [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';C:\\Program Files\\Git\\usr\\bin',\\\
+>     'Machine'\\\
+> )\
+> ```
 
 ## 安装
 
@@ -41,6 +56,15 @@ bd init
 ```
 
 ## 常见问题
+
+### `spawn cp ENOENT`（Windows）
+
+```
+(FiberFailure) CopyToWorktreeError: Failed to copy node_modules to worktree: spawn cp ENOENT
+```
+
+`sandcastle` 复制 node_modules 时找不到 `cp` 命令。\
+→ 安装 [Git for Windows](https://git-scm.com/downloads/win)，并将 `C:\Program Files\Git\usr\bin` 加入系统 PATH（见上方依赖说明）。
 
 ### `bd` 命令找不到
 

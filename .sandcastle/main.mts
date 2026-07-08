@@ -180,7 +180,7 @@ function ensureBdCommand(): void {
 function ensureBeadsDb(dbPath: string, runInDir: string): void {
   if (fs.existsSync(path.join(dbPath, 'config.yaml'))) return;
   console.log('beads 数据库未初始化，执行 bd init…');
-  execSync('bd init', {
+  execSync('bd init --non-interactive --skip-agents --skip-hooks', {
     encoding: 'utf-8',
     timeout: 30_000,
     cwd: runInDir,

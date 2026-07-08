@@ -1,10 +1,11 @@
 {
   "type": "module",
   "scripts": {
+    "start": "tsx src/chat-server.mts",
+    "loop": "tsx .sandcastle/main.mts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "start": "tsx src/chat-server.mts"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.12.0",

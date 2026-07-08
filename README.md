@@ -45,13 +45,10 @@ pi
 
 # 2. 在 pi 中使用 request-to-issues 技能，将需求拆分为可执行的 issues
 
-# 3. 初始化 beads 数据库（首次运行必须）
-bd init
-
-# 4. 启动 Agent 后台循环
+# 3. 启动 Agent 后台循环
 ./run.bat
 
-# 5. 启动 Beads UI
+# 4. 启动 Beads UI
 ./beads-ui.bat
 ```
 
@@ -77,6 +74,20 @@ bd init
 [Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH', 'User') + ';C:\Users\JinJin\bin', 'User')
 ```
 
+## 新机器克隆后初始化
+
+在其他电脑上首次克隆本项目后，需要拉取 beads 数据：
+
+```bash
+git clone https://github.com/Yogioo/Loop.git
+cd Loop
+npm install
+bd bootstrap --yes
+```
+
+> `bd bootstrap` 会自动检测 `config.yaml` 中的 `sync.remote` 配置，从远端克隆 Dolt 数据库。
+> 前提：该机器上已全局安装 `beads`（`npm install -g beads`）。
+
 ### `no beads database found`
 
 ```
@@ -84,7 +95,9 @@ Error: no beads database found
 Hint: run 'bd init' to create a new database
 ```
 
-首次克隆项目后必须运行 `bd init` 来初始化 beads 数据库。
+说明 `.beads/embeddeddolt/` 数据库尚未初始化。执行 `bd bootstrap --yes` 即可从远端同步。
+
+> 注意：**不要**运行 `bd init` 或直接 `bd dolt pull`（pull 需要有本地数据库才能执行），那会创建空数据库覆盖远端数据。
 
 ### `Cannot find module '.sandcastle/main.ts'`
 

@@ -202,6 +202,23 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== 第 ${iteration} 轮迭代 ===\n`);
 
   // -------------------------------------------------------------------------
+  // 同步远端 beads 数据库：先拉取其他机器 push 的工单，再检查本地待处理列表。
+  // bd dolt pull 从 Dolt remote 拉取最新数据，确保 bd ready 能看到所有工单。
+  // -------------------------------------------------------------------------
+  try {
+    console.log("同步远端 beads 数据库…");
+    execSync("bd dolt pull --remote origin", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+      stdio: "pipe",
+    });
+    console.log("bd dolt pull 完成。");
+  } catch (err) {
+    console.warn("bd dolt pull 失败（继续使用本地数据）：", err);
+  }
+
+  // -------------------------------------------------------------------------
   // 预检：在调用昂贵的 planner agent 之前，先用本地 CLI 检查是否有待处理
   // issue。bd ready 本身已排除被显式阻塞的工单，若返回空则直接跳过 planner。
   // -------------------------------------------------------------------------
@@ -429,6 +446,23 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   });
 
   console.log("\n分支已合并。");
+
+  // -------------------------------------------------------------------------
+  // 合并完成后，将本地 beads 工单状态变更（close/label 等）推送到远端。
+  // 这样其他机器 pull 后能看到最新的工单状态。
+  // -------------------------------------------------------------------------
+  try {
+    console.log("推送 beads 状态变更到远端…");
+    execSync("bd dolt push --remote origin", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+      stdio: "pipe",
+    });
+    console.log("bd dolt push 完成。");
+  } catch (err) {
+    console.warn("bd dolt push 失败：", err);
+  }
 }
 
 console.log("全部完成。");

@@ -113,9 +113,10 @@ function buildExe(bundlePath, exeName) {
     { cwd: dir }
   );
 
-  // Cleanup
+  // Cleanup intermediates (keep only .exe)
   fs.unlinkSync(blobPath);
   fs.unlinkSync(configPath);
+  fs.unlinkSync(bundlePath);
 
   const size = (fs.statSync(exePath).size / 1024 / 1024).toFixed(1);
   console.log(`  ✓ ${exeName} (${size} MB)\n`);
@@ -124,6 +125,15 @@ function buildExe(bundlePath, exeName) {
 // ---------------------------------------------------------------------------
 
 console.log("=== Loop Build ===\n");
+
+// Clean previous build artifacts (keep only .exe if still running)
+try {
+  for (const f of fs.readdirSync(DIST)) {
+    if (f.endsWith('.exe')) continue;
+    fs.rmSync(path.join(DIST, f), { recursive: true, force: true });
+  }
+} catch { /* dist may not exist yet */ }
+fs.mkdirSync(DIST, { recursive: true });
 
 console.log("Building frontend (chat-server)...");
 buildExe(

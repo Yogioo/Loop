@@ -3,6 +3,7 @@
   "scripts": {
     "start": "tsx src/chat-server.mts",
     "loop": "tsx .sandcastle/main.mts",
+    "build": "node scripts/build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

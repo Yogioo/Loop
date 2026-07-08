@@ -288,6 +288,9 @@ function semaphore(limit: number) {
 // 主循环
 // ---------------------------------------------------------------------------
 
+// 主循环包装在 async IIFE 中，兼容 CJS (SEA) 和 ESM (tsx)
+(async () => {
+
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== 第 ${iteration} 轮迭代 ===\n`);
 
@@ -567,3 +570,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 }
 
 console.log("全部完成。");
+
+})().catch((err) => {
+  console.error("AgentLoop 致命错误：", err);
+  process.exit(1);
+});

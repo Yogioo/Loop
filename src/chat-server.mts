@@ -15,9 +15,11 @@ import { execSync } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // Paths
-// ---------------------------------------------------------------------------
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// __dirname: works in both ESM (tsx) and CJS (SEA bundle)
+const __dirname = (() => {
+  if (typeof __dirname !== 'undefined') return __dirname; // CJS
+  return path.dirname(fileURLToPath(import.meta.url));     // ESM
+})();
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
 
 // ---------------------------------------------------------------------------
@@ -317,12 +319,14 @@ function getInlineHtml(): string {
 // Main entry point (when run directly)
 // ---------------------------------------------------------------------------
 
-// Only run as main when executed directly via tsx or node
-const isMain = process.argv[1] && (
+// Only run as main when executed directly (tsx / node / SEA exe).
+// In CJS/SEA context, import.meta is unavailable so we use a fallback.
+const isCjs = typeof __dirname !== 'undefined' && typeof require !== 'undefined';
+const isMain = isCjs || (process.argv[1] && (
   process.argv[1] === fileURLToPath(import.meta.url) ||
   process.argv[1].endsWith('chat-server.mts') ||
   process.argv[1].endsWith('chat-server.js')
-);
+));
 
 if (isMain) {
   // Parse --target <dir> to set pi's working directory (defaults to CWD)

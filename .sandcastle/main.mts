@@ -130,17 +130,20 @@ const TARGET_DIR = targetIdx !== -1
 
 console.log(`目标目录：${TARGET_DIR}`);
 
-// 预检：目标目录必须是 git 仓库
+// 预检：目标目录必须是已提交的 git 仓库
 if (!fs.existsSync(path.join(TARGET_DIR, '.git'))) {
-  console.error(`错误：${TARGET_DIR} 不是 git 仓库。请先执行 git init。`);
-  process.exit(1);
+  die(`错误：${TARGET_DIR} 不是 git 仓库。请先执行 git init。`);
 }
-
-const BASE_BRANCH = execSync("git rev-parse --abbrev-ref HEAD", {
-  encoding: "utf-8",
-  timeout: 10_000,
-  cwd: TARGET_DIR,
-}).trim();
+let BASE_BRANCH;
+try {
+  BASE_BRANCH = execSync("git rev-parse --abbrev-ref HEAD", {
+    encoding: "utf-8",
+    timeout: 10_000,
+    cwd: TARGET_DIR,
+  }).trim();
+} catch {
+  die(`错误：${TARGET_DIR} 没有提交记录。请先 git add . && git commit -m "init"。`);
+}
 
 // ---------------------------------------------------------------------------
 // Loop v2 — 缓存目录初始化
@@ -168,13 +171,25 @@ console.log(`Sandcastle logs     → ${path.join(LOOP_DATA_DIR, "sandcastle", "l
 // 启动预检：bd 命令是否存在 + beads 数据库是否已初始化
 // ---------------------------------------------------------------------------
 
+/** 打印错误并等待按键再退出（防止双击闪退）。 */
+function die(msg) {
+  console.error(msg);
+  console.error('按任意键退出...');
+  try {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.once('data', () => process.exit(1));
+  } catch {
+    process.exit(1);
+  }
+}
+
 /** 检查 bd 命令是否可用，不可用则直接退出。 */
 function ensureBdCommand(): void {
   try {
     execSync("bd --version", { encoding: "utf-8", timeout: 10_000, stdio: "pipe" });
   } catch {
-    console.error("错误：未找到 bd 命令。请先安装 beads：npm install -g @gastownhall/beads");
-    process.exit(1);
+    die("错误：未找到 bd 命令。请先安装 beads：npm install -g @gastownhall/beads");
   }
 }
 
@@ -572,6 +587,5 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 console.log("全部完成。");
 
 })().catch((err) => {
-  console.error("AgentLoop 致命错误：", err);
-  process.exit(1);
+  die(`AgentLoop 致命错误：${err?.message ?? err}`);
 });

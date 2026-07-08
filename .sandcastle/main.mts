@@ -25,6 +25,36 @@ import { z } from "zod";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+// ---------------------------------------------------------------------------
+// Windows shell quoting 修复
+//
+// sandcastle 内部使用 Unix 风格单引号做 shell 转义（shellEscape），
+// 但 Windows cmd.exe 不认单引号——会当作普通字符原样传给 pi，
+// 导致 pi 收到带引号的模型名（如 'opencode-go/deepseek-v4-pro'）而找不到模型。
+// 此 wrapper 在 Windows 上将命令中的单引号替换为双引号。
+// ---------------------------------------------------------------------------
+function pi(
+  model: string,
+  options?: Parameters<typeof sandcastle.pi>[1],
+): ReturnType<typeof sandcastle.pi> {
+  const provider = sandcastle.pi(model, options);
+  if (process.platform !== "win32") return provider;
+
+  const origBuildPrint = provider.buildPrintCommand.bind(provider);
+  return {
+    ...provider,
+    buildPrintCommand(args: Parameters<typeof origBuildPrint>[0]) {
+      const result = origBuildPrint(args);
+      // 将单引号参数替换为 cmd.exe 能识别的双引号
+      result.command = result.command.replace(
+        /'([^']*)'/g,
+        (_: string, inner: string) => `"${inner.replace(/"/g, '\\"')}"`,
+      );
+      return result;
+    },
+  };
+}
+
 // 规划器将其计划以 JSON 形式输出在 <plan> 标签中；Output.object 根据
 // 此 schema 提取并验证。这里使用 Zod，但任何 Standard Schema 验证器
 // 同样适用——Valibot、ArkType 等。参见 https://standardschema.dev。
@@ -140,28 +170,66 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // 阶段一：规划
   //
-  // 规划 agent（使用 opus 以获得更深推理能力）读取待处理 issue 列表，
-  // 构建依赖关系图，并选择当前可以并行处理的 issue
-  //（即对其他待处理 issue 没有阻塞依赖的 issue）。
-  //
-  // 它输出一个 <plan> JSON 块——Output.object 负责解析和验证。
+  // 规划 agent 读取待处理 issue，构建依赖图，选出无阻塞 issue。
+  // 输出格式：用 <plan>/</plan> 包裹 JSON。
   // -------------------------------------------------------------------------
-  const plan = await sandcastle.run({
+  const planResult = await sandcastle.run({
     hooks,
     sandbox: noSandbox(),
     name: "planner",
-    // 一轮迭代足够：规划器只需要阅读和推理，不需要写代码。
-    // （结构化输出要求 maxIterations: 1。）
     maxIterations: 1,
-    // 使用 Opus 进行规划：依赖分析受益于更深的推理能力。
-    agent: sandcastle.pi(AGENTS.planner.model, { thinking: AGENTS.planner.thinking }),
+    agent: pi(AGENTS.planner.model, { thinking: AGENTS.planner.thinking }),
     promptFile: "./.sandcastle/plan-prompt.md",
-    // 提取 <plan> JSON 并验证为类型化对象。如果标签缺失、JSON 格式错误
-    // 或验证失败，会抛出 StructuredOutputError——这将中止循环。
-    output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
   });
 
-  const issues = plan.output.issues;
+  // 从 stdout 提取 <plan>...</plan> 之间的 JSON
+  // pi openai-completions 的 stdout 是 JSON Lines 流——每行一个 JSON 对象。
+  // thinking 内容中可能包含 <plan> 片段，干扰直接搜索，因此需先解析
+  // JSON Lines，只拼合 text 类型字段，再做标记匹配。
+  let planText = "";
+  for (const line of planResult.stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed);
+      // 尝试多种常见 API 响应格式提取文本
+      const parts: string[] = [];
+      // message_update 中的 assistant message content
+      for (const part of obj?.message?.content ?? []) {
+        if (part?.type === "text" && typeof part?.text === "string") {
+          parts.push(part.text);
+        }
+      }
+      // 直接 text 字段
+      if (typeof obj?.text === "string") {
+        parts.push(obj.text);
+      }
+      planText += parts.join("");
+    } catch {
+      // 非 JSON 行（纯文本场景），直接拼合
+      planText += line + "\n";
+    }
+  }
+
+  // 用 lastIndexOf 定位最后一对 <plan>...</plan>，防止多片段拼接导致
+  // 匹配到中间的无效对
+  const openTag = "<plan>";
+  const closeTag = "</plan>";
+  const startIdx = planText.lastIndexOf(openTag);
+  const endIdx = planText.indexOf(closeTag, startIdx + openTag.length);
+
+  if (startIdx === -1 || endIdx === -1) {
+    const tail = planText.slice(-500);
+    console.error(
+      "规划器 stdout 中未找到 <plan>…</plan> 块。提取文本尾部：\n" + tail,
+    );
+    throw new Error("规划器未输出有效的 <plan>…</plan> 块");
+  }
+
+  const rawJson = planText.slice(startIdx + openTag.length, endIdx).trim();
+  const plan = planSchema.parse(JSON.parse(rawJson));
+
+  const issues = plan.issues;
 
   if (issues.length === 0) {
     // 没有无阻塞的工作——要么全部完成，要么全部被阻塞。
@@ -205,7 +273,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         const implement = await sandbox.run({
           name: "implementer",
           maxIterations: 100,
-          agent: sandcastle.pi(AGENTS.implementer.model, { thinking: AGENTS.implementer.thinking }),
+          agent: pi(AGENTS.implementer.model, { thinking: AGENTS.implementer.thinking }),
           promptFile: "./.sandcastle/implement-prompt.md",
           promptArgs: {
             TASK_ID: issue.id,
@@ -219,7 +287,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           const review = await sandbox.run({
             name: "reviewer",
             maxIterations: 1,
-            agent: sandcastle.pi(AGENTS.reviewer.model, { thinking: AGENTS.reviewer.thinking }),
+            agent: pi(AGENTS.reviewer.model, { thinking: AGENTS.reviewer.thinking }),
             promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
               BRANCH: issue.branch,
@@ -291,7 +359,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     sandbox: noSandbox(),
     name: "merger",
     maxIterations: 1,
-    agent: sandcastle.pi(AGENTS.merger.model, { thinking: AGENTS.merger.thinking }),
+    agent: pi(AGENTS.merger.model, { thinking: AGENTS.merger.thinking }),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       // 分支名列表（markdown 格式，每行一个）。

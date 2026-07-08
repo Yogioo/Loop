@@ -6,11 +6,11 @@
 
 ## 分支差异
 
-!`git diff {{TARGET_BRANCH}}...{{BRANCH}}`
+!`git diff {{BASE_BRANCH}}...{{BRANCH}}`
 
 ## 该分支上的提交
 
-!`git log {{TARGET_BRANCH}}..{{BRANCH}} --oneline`
+!`git log {{BASE_BRANCH}}..{{BRANCH}} --oneline`
 
 # 审查过程
 

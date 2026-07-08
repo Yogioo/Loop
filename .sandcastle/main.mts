@@ -107,6 +107,14 @@ const AGENTS = {
   },
 };
 
+// 宿主仓库当前分支，作为审查 diff 的基准分支。
+// 在循环外获取一次，避免反复调用 git。
+const BASE_BRANCH = execSync("git rev-parse --abbrev-ref HEAD", {
+  encoding: "utf-8",
+  timeout: 10_000,
+  cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
+}).trim();
+
 // plan→execute→merge 循环无限运行，直到所有 issue 处理完毕。
 // 没有待处理 issue 时会进入 IDLE_SLEEP_SECONDS 休眠，不会空转。
 const MAX_ITERATIONS = Infinity;
@@ -341,6 +349,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
               BRANCH: issue.branch,
+              BASE_BRANCH,
             },
           });
 

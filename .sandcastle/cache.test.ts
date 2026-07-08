@@ -16,7 +16,6 @@ import * as os from "node:os";
 
 describe("getLoopDataDir", () => {
   beforeEach(() => {
-    // Save and clear env vars for test isolation
     vi.restoreAllMocks();
   });
 

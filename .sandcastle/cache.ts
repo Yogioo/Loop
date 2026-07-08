@@ -34,9 +34,9 @@ export const SUBDIRS = {
  * 3. POSIX:   $HOME/.local/share/Loop/
  */
 export function getLoopDataDir(): string {
-  const env = process.env.LOOP_DATA_DIR;
-  if (env && env.trim().length > 0) {
-    return path.resolve(env.trim());
+  const env = process.env.LOOP_DATA_DIR?.trim();
+  if (env) {
+    return path.resolve(env);
   }
 
   if (process.platform === "win32") {
@@ -61,24 +61,29 @@ export function getLoopDataDir(): string {
   return path.resolve(process.cwd(), ".loop-data");
 }
 
+/** Resolve a subdirectory path under the loop data directory. */
+function getSubdirPath(subdir: string, dataDir?: string): string {
+  return path.resolve(dataDir ?? getLoopDataDir(), subdir);
+}
+
 /** Path to the beads database directory. */
 export function getBeadsDbPath(dataDir?: string): string {
-  return path.resolve(dataDir ?? getLoopDataDir(), SUBDIRS.beads);
+  return getSubdirPath(SUBDIRS.beads, dataDir);
 }
 
 /** Path to the sandcastle worktrees directory. */
 export function getSandcastlePath(dataDir?: string): string {
-  return path.resolve(dataDir ?? getLoopDataDir(), SUBDIRS.sandcastle);
+  return getSubdirPath(SUBDIRS.sandcastle, dataDir);
 }
 
 /** Path to the logs directory. */
 export function getLogsPath(dataDir?: string): string {
-  return path.resolve(dataDir ?? getLoopDataDir(), SUBDIRS.logs);
+  return getSubdirPath(SUBDIRS.logs, dataDir);
 }
 
 /** Path to the shared node_modules cache directory. */
 export function getNodeModulesCachePath(dataDir?: string): string {
-  return path.resolve(dataDir ?? getLoopDataDir(), SUBDIRS.nodeModules);
+  return getSubdirPath(SUBDIRS.nodeModules, dataDir);
 }
 
 /**
@@ -134,11 +139,10 @@ export function createJunction(linkPath: string, targetPath: string): void {
     fs.rmSync(linkPath, { recursive: true, force: true });
   }
 
-  if (process.platform === "win32") {
-    // Ensure parent directory exists
-    const parent = path.dirname(linkPath);
-    fs.mkdirSync(parent, { recursive: true });
+  // Ensure parent directory exists
+  fs.mkdirSync(path.dirname(linkPath), { recursive: true });
 
+  if (process.platform === "win32") {
     // mklink /J requires the link name WITHOUT trailing backslash
     const link = linkPath.replace(/[/\\]+$/, "");
     const target = targetPath.replace(/[/\\]+$/, "");
@@ -148,7 +152,6 @@ export function createJunction(linkPath: string, targetPath: string): void {
     });
   } else {
     // POSIX: standard symlink
-    fs.mkdirSync(path.dirname(linkPath), { recursive: true });
     fs.symlinkSync(targetPath, linkPath, "dir");
   }
 }
@@ -178,10 +181,7 @@ export interface SymlinkConfig {
 export function defaultSymlinkConfig(): SymlinkConfig {
   return {
     symlinkPaths: ["node_modules", ".sandcastle"],
-    copyPaths: [
-      // Default paths that should always be copied:
-      // (empty — everything not in symlinkPaths is a copy)
-    ],
+    copyPaths: [],
   };
 }
 
@@ -203,15 +203,11 @@ export function setupWorktreeSymlinks(
     const linkTarget = path.resolve(worktreeDir, relPath);
     const cacheSource = path.resolve(cacheRoot, SUBDIRS.nodeModules);
 
-    // For node_modules, cache source is the shared node_modules cache.
-    // For .sandcastle, cache source is the project's own .sandcastle dir.
-    // (In practice, only node_modules is cached; .sandcastle is small.)
     const source =
       relPath === "node_modules"
         ? cacheSource
         : path.resolve(process.cwd(), relPath);
 
-    // Ensure cache source exists
     if (relPath === "node_modules") {
       fs.mkdirSync(cacheSource, { recursive: true });
     }

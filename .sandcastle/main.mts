@@ -25,6 +25,13 @@ import { z } from "zod";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
+import {
+  ensureCacheDirs,
+  getBeadsDbPath,
+  getLoopDataDir,
+  defaultSymlinkConfig,
+  setupWorktreeSymlinks,
+} from "./cache.ts";
 
 // ---------------------------------------------------------------------------
 // Windows shell quoting 修复
@@ -47,11 +54,13 @@ function pi(
     buildPrintCommand(args: Parameters<typeof origBuildPrint>[0]) {
       const result = origBuildPrint(args);
       // 将单引号参数替换为 cmd.exe 能识别的双引号
-      result.command = result.command.replace(
-        /'([^']*)'/g,
-        (_: string, inner: string) => `"${inner.replace(/"/g, '\\"')}"`,
-      );
-      return result;
+      return {
+        ...result,
+        command: result.command.replace(
+          /'([^']*)'/g,
+          (_: string, inner: string) => `"${inner.replace(/"/g, '\\"')}"`,
+        ),
+      };
     },
   };
 }
@@ -115,6 +124,18 @@ const BASE_BRANCH = execSync("git rev-parse --abbrev-ref HEAD", {
   cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
 }).trim();
 
+// ---------------------------------------------------------------------------
+// Loop v2 — 缓存目录初始化
+//
+// 所有运行时产物（beads 数据库、沙箱日志、node_modules 缓存）
+// 统一迁到 LOOP_DATA_DIR（默认 %LOCALAPPDATA%/Loop/），
+// 工作目录只保留源码和模板配置。
+// ---------------------------------------------------------------------------
+const LOOP_DATA_DIR = ensureCacheDirs();
+const BDS_DB_PATH = getBeadsDbPath(LOOP_DATA_DIR);
+console.log(`Loop 数据目录：${LOOP_DATA_DIR}`);
+console.log(`Beads 数据库：${BDS_DB_PATH}`);
+
 // plan→execute→merge 循环无限运行，直到所有 issue 处理完毕。
 // 没有待处理 issue 时会进入 IDLE_SLEEP_SECONDS 休眠，不会空转。
 const MAX_ITERATIONS = Infinity;
@@ -134,9 +155,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** 返回 beads --db 参数，指向 LOOP_DATA_DIR 下的 beads 数据库。 */
+function beadsDbFlag(): string {
+  return `--db "${BDS_DB_PATH}"`;
+}
+
 /** 运行 bd ready --json，返回原始 issue 数组。失败时抛异常。 */
 function getReadyIssues(): unknown[] {
-  const raw = execSync("bd ready --json", {
+  const raw = execSync(`bd ready --json ${beadsDbFlag()}`, {
     encoding: "utf-8",
     timeout: 30_000,
     cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
@@ -158,10 +184,12 @@ const hooks = {
   sandbox: { onSandboxReady: [{ command: "npm install" }] },
 };
 
-// 在每个沙箱启动前将 node_modules 从宿主机复制到 worktree 中。
-// 避免从头完整 npm install；上面的钩子处理平台特定的二进制文件
-// 以及自上次复制以来新增的包。
-const copyToWorktree = ["node_modules"];
+// Loop v2 — Symlink 配置：
+// `symlinkPaths` 通过 Junction（Windows）或 symlink（POSIX）指向
+// 共享缓存（LOOP_DATA_DIR/node_modules/），不复制到 worktree。
+// `copyPaths` 按原有方式复制到 worktree。
+// 参见 cache.ts 中的 setupWorktreeSymlinks()。
+const symlinkConfig = defaultSymlinkConfig();
 
 // ---------------------------------------------------------------------------
 // 并发信号量
@@ -207,7 +235,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   try {
     console.log("同步远端 beads 数据库…");
-    execSync("bd dolt pull --remote origin", {
+    execSync(`bd dolt pull --remote origin ${beadsDbFlag()}`, {
       encoding: "utf-8",
       timeout: 30_000,
       cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),
@@ -340,8 +368,16 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         branch: issue.branch,
         sandbox: noSandbox(),
         hooks,
-        copyToWorktree,
+        // node_modules 走 Junction/symlink -> 共享缓存，不复制
+        copyToWorktree: symlinkConfig.copyPaths,
       });
+
+      // Loop v2: 在 worktree 中为 symlinkPaths 创建 Junction/symlink
+      setupWorktreeSymlinks(
+        sandbox.worktreePath,
+        symlinkConfig,
+        LOOP_DATA_DIR,
+      );
 
       try {
         // 运行实现者
@@ -453,7 +489,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   try {
     console.log("推送 beads 状态变更到远端…");
-    execSync("bd dolt push --remote origin", {
+    execSync(`bd dolt push --remote origin ${beadsDbFlag()}`, {
       encoding: "utf-8",
       timeout: 30_000,
       cwd: path.resolve(import.meta.dirname ?? __dirname, ".."),

@@ -1,6 +1,13 @@
 {
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "npx tsc --noEmit"
+  },
   "devDependencies": {
-    "@ai-hero/sandcastle": "^0.12.0"
+    "@ai-hero/sandcastle": "^0.12.0",
+    "@types/node": "^26.1.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "zod": "^4.4.3"

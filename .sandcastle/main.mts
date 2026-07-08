@@ -126,7 +126,7 @@ const args = process.argv.slice(2);
 const targetIdx = args.indexOf("--target");
 const TARGET_DIR = targetIdx !== -1
   ? path.resolve(args[targetIdx + 1] ?? ".")
-  : path.resolve(import.meta.dirname ?? __dirname, "..");
+  : process.cwd();
 
 console.log(`目标目录：${TARGET_DIR}`);
 

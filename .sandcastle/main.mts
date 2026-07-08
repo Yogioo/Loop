@@ -130,6 +130,12 @@ const TARGET_DIR = targetIdx !== -1
 
 console.log(`目标目录：${TARGET_DIR}`);
 
+// 预检：目标目录必须是 git 仓库
+if (!fs.existsSync(path.join(TARGET_DIR, '.git'))) {
+  console.error(`错误：${TARGET_DIR} 不是 git 仓库。请先执行 git init。`);
+  process.exit(1);
+}
+
 const BASE_BRANCH = execSync("git rev-parse --abbrev-ref HEAD", {
   encoding: "utf-8",
   timeout: 10_000,

@@ -61,17 +61,27 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+npm install          # Install dependencies
+npm run test         # Run vitest tests
+npm run typecheck    # Run TypeScript type checking
+npm run start        # Start the chat server (tsx src/chat-server.mts)
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+### Frontend Chat Server (this issue)
+
+- `src/chat-server.mts` — Express HTTP server with routes for GET / (HTML page), POST /chat (pi RPC bridge), POST /new-session
+- `src/pi-rpc.mts` — PiRpcManager: spawns `pi --mode rpc`, manages stdin/stdout JSON Lines protocol, command queue, auto-restart
+- `src/public/index.html` — Browser chat UI (dark theme, input box, send button, new session button)
+- `src/test/helpers/mock-pi-rpc.mjs` — Mock pi process for testing
+
+### RPC Protocol
+
+Commands are JSON lines sent to stdin: `{"type":"prompt","message":"...","id":"..."}`
+Events are JSON lines on stdout: `agent_start`, `message_update` (carries text in `message.content`), `agent_end`
+Response: `{"type":"response","command":"prompt","success":true}`
 
 ## Conventions & Patterns
 

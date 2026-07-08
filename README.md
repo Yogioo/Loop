@@ -27,9 +27,15 @@ Agent 驱动开发工作流 — 从对话到 PRD 到自动实现。
 
 | 工具 | 用途 | 安装 |
 |------|------|------|
-| **[pi](https://pi.dev)** | AI 编程助手 | `npm install -g @mariozechner/pi-coding-agent` |
-| **[beads](https://github.com/gastownhall/beads)** | Issue 跟踪 | `npm install -g @gastownhall/beads` |
-| **[Git](https://git-scm.com)** | 版本控制 | `winget install Git.Git` |
+| **[pi](https://pi.dev)** | AI 编程助手（子进程调用，不在 exe 内） | `npm install -g @mariozechner/pi-coding-agent` |
+| **[beads](https://github.com/gastownhall/beads)** | Issue 跟踪（子进程调用，不在 exe 内） | `npm install -g @gastownhall/beads` |
+| **[Git for Windows](https://git-scm.com)** | 版本控制 + `cp`/`bash` 命令 | `winget install Git.Git` |
+
+## 依赖（仅开发/构建时需要）
+
+| 工具 | 用途 | 安装 |
+|------|------|------|
+| **[Node.js](https://nodejs.org)** | 运行时 & SEA 打包 | `winget install OpenJS.NodeJS` |
 
 ## 快速开始
 
@@ -62,6 +68,26 @@ npm run loop -- --target /path/to/your-project
 
 目标项目需要是 git 仓库。如果还没初始化 beads，AgentLoop 会自动执行 `bd init`（仅创建数据库，不产生额外文件）。
 
+## 打包为独立 exe
+
+Loop 可以打包为不依赖 Node.js 的独立 `.exe`：
+
+```bash
+npm run build
+# 产出 dist/loop-frontend.exe (~87 MB)
+# 产出 dist/loop-backend.exe  (~88 MB)
+```
+
+> exe 内含 Node.js 运行时，所以较大。`pi`、`bd`、`git` 作为子进程调用，仍需系统安装。
+>
+> 本质 = 自带 Node.js 的 JS bundle，不是静态编译。
+
+```bash
+# 直接用 exe，不需要装 Node.js / npm / tsx
+loop-frontend.exe --target C:\your-project
+loop-backend.exe  --target C:\your-project
+```
+
 ## 技能
 
 | 技能 | 方式 | 说明 |
@@ -80,10 +106,15 @@ loop/
 │   └── public/index.html  # 聊天界面
 ├── .sandcastle/
 │   └── main.mts           # AgentLoop 编排（规划→实现→审查→合并）
+├── scripts/
+│   └── build.mjs          # exe 打包脚本
 ├── skills/                # 技能文件
 │   ├── grill-me/
 │   ├── to-prd/
 │   └── to-issues/
+├── dist/                  # 构建产物（gitignore）
+│   ├── loop-frontend.exe
+│   └── loop-backend.exe
 ├── start.bat              # 启动前端
 └── loop.bat               # 启动后端
 ```

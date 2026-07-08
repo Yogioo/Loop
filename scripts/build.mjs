@@ -40,6 +40,7 @@ async function bundle(entry, name) {
     target: "node24",
     format: "cjs",
     outfile,
+    logLevel: "error",  // suppress expected import.meta warnings
   });
 
   // Post-process: replace import.meta with CJS globals

@@ -57,6 +57,13 @@
 
   let loading = false;
 
+  // Load saved history on page load
+  let history = [];
+  try {
+    history = JSON.parse(localStorage.getItem('loop-chat-history') || '[]');
+    for (const m of history) addMessage(m.text, m.cls, false);
+  } catch { history = []; }
+
   // Send on Enter (only when not loading)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -131,9 +138,10 @@
       const res = await fetch('/new-session', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        // Clear messages and show welcome
         messages.innerHTML = '';
-        addMessage('Session reset. How can I help you?', 'pi');
+        history = [];
+        localStorage.removeItem('loop-chat-history');
+        addMessage('Session reset.', 'pi', false);
       } else {
         addMessage('Failed to create new session', 'error');
       }
@@ -144,12 +152,16 @@
     }
   }
 
-  function addMessage(text, cls) {
+  function addMessage(text, cls, save = true) {
     const div = document.createElement('div');
     div.className = 'message ' + cls;
     div.textContent = text;
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
+    if (save) {
+      history.push({ text, cls });
+      localStorage.setItem('loop-chat-history', JSON.stringify(history));
+    }
   }
 
   function setLoading(v) {

@@ -459,7 +459,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       if (typeof obj?.text === "string") {
         parts.push(obj.text);
       }
-      planText += parts.join("");
+      // 如果没有提取到任何文本字段，保留原始行
+      // （处理 planner 以纯文本输出 JSON 的情况，如 <plan> 内的 issue 数组）
+      planText += parts.length > 0 ? parts.join("") : line + "\n";
     } catch {
       // 非 JSON 行（纯文本场景），直接拼合
       planText += line + "\n";

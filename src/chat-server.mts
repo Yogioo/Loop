@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { PiRpcManager } from './pi-rpc.mts';
+import { PiRpcManager, type StreamEvent } from './pi-rpc.mts';
 import { execSync } from 'node:child_process';
 
 // Injected by esbuild at build time (undefined in dev/tsx mode).
@@ -96,15 +96,34 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
     return writeTempSkill(name, `skill ${name} not found`);
   };
 
+  // Grill-me system prompt: strip YAML frontmatter so pi doesn't interpret
+  // disable-model-invocation: true (which would prevent activation).
+  // Dev (tsx) and exe builds both go through temp file for consistency.
+  const stripFrontmatter = (content: string) =>
+    content.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+  const buildGrillMePrompt = (): string => {
+    const raw = _SKILL_GRILL_ME ?? fs.readFileSync(
+      path.join(path.resolve(_esmDirname, '..', 'skills'), 'grill-me', 'SKILL.md'),
+      'utf-8'
+    );
+    return [
+      stripFrontmatter(raw),
+      '用户即将描述他要做的改动（例如：我打算加新功能/修复bug，等我整理一下语言发你）。',
+      '请开始追问式访谈，一次只问一个问题。',
+    ].join('\n\n');
+  };
+  const grillMePath = writeTempSkill('grill-me', buildGrillMePrompt());
+
   // Create PiRpcManager
   const manager = new PiRpcManager({
     // On Windows, npm-installed global commands are .cmd files
     command: options.piCommand ?? (process.platform === 'win32' ? 'pi.cmd' : 'pi'),
     args: options.piArgs ?? [
       '--mode', 'rpc',
-      '--append-system-prompt', getSkill('grill-me', _SKILL_GRILL_ME),
-      '--skill',             getSkill('to-prd',   _SKILL_TO_PRD),
-      '--skill',             getSkill('to-issues', _SKILL_TO_ISSUES),
+      '--tools', 'read,bash',
+      '--append-system-prompt', grillMePath,
+      '--skill',               getSkill('to-prd',   _SKILL_TO_PRD),
+      '--skill',               getSkill('to-issues', _SKILL_TO_ISSUES),
     ],
     cwd: options.cwd,
     env: options.piEnv,
@@ -174,8 +193,15 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
       res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders();
 
-      const result = await manager.sendPrompt(message, 0, (text) => {
-        res.write(`data: ${JSON.stringify({ type: 'update', text })}\n\n`);
+      const result = await manager.sendPrompt(message, 0, (event: StreamEvent) => {
+        // Forward each structured event as a distinct SSE type
+        const sse: Record<string, unknown> = { type: event.type };
+        if (event.text !== undefined) sse.text = event.text;
+        if (event.toolName !== undefined) sse.toolName = event.toolName;
+        if (event.toolInput !== undefined) sse.toolInput = event.toolInput;
+        if (event.toolResult !== undefined) sse.toolResult = event.toolResult;
+        if (event.thinking !== undefined) sse.thinking = event.thinking;
+        res.write(`data: ${JSON.stringify(sse)}\n\n`);
       });
 
       res.write(`data: ${JSON.stringify({ type: 'done', text: result.text })}\n\n`);
@@ -277,6 +303,12 @@ function getInlineHtml(): string {
   .message.pi.streaming::after { content: ' ▌'; animation: blink 1s step-end infinite; }
   .message.pi.streaming.done::after { content: none; }
   @keyframes blink { 50% { opacity: 0; } }
+  .thinking-block { color: #888; font-style: italic; font-size: 13px; margin-bottom: 8px; border-left: 2px solid #444; padding-left: 10px; }
+  .tool-block { background: #1e2a3a; border: 1px solid #2a4a6a; border-radius: 6px; padding: 6px 10px; margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .tool-block .tool-icon { font-size: 14px; }
+  .tool-block .tool-name { color: #4a90d9; font-weight: 600; }
+  .tool-block .tool-input { color: #aaa; font-family: monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+  .tool-block .tool-done { color: #6b6; margin-left: auto; font-size: 12px; }
   #input-area { display: flex; gap: 8px; padding: 12px 24px; background: #16213e; border-top: 1px solid #0f3460; }
   #input { flex: 1; padding: 10px 14px; border: 1px solid #0f3460; border-radius: 6px; background: #1a1a2e; color: #e0e0e0; font-size: 14px; outline: none; }
   #input:focus { border-color: #4a90d9; }
@@ -316,9 +348,11 @@ function getInlineHtml(): string {
     sendMessage(text);
   }
 
+  let toolCounter = 0;
   async function sendMessage(text) {
     addMessage(text, 'user');
     setLoading(true);
+    toolCounter = 0;
 
     const bubble = document.createElement('div');
     bubble.className = 'message pi streaming';
@@ -347,22 +381,44 @@ function getInlineHtml(): string {
           if (!line.startsWith('data: ')) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.type === 'update') {
-              if (firstUpdate) { firstUpdate = false; bubble.textContent = ''; }
-              bubble.textContent = data.text;
-              messages.scrollTop = messages.scrollHeight;
+            if (data.type === 'text') {
+              if (firstUpdate) { firstUpdate = false; bubble.innerHTML = ''; }
+              showText(bubble, data.text);
               fullText = data.text;
+            } else if (data.type === 'thinking') {
+              showBlock(bubble, 'thinking-' + (data.thinking||'').slice(0,20), 'thinking-block', escHtml(data.thinking||''));
+            } else if (data.type === 'tool_call') {
+              toolCounter++;
+              showBlock(bubble, 'tool-' + toolCounter, 'tool-block',
+                '<span class="tool-icon">🔧</span><span class="tool-name">' + escHtml(data.toolName||'') + '</span><span class="tool-input">' + escHtml((data.toolInput||'').slice(0,200)) + '</span>');
+            } else if (data.type === 'tool_result') {
+              const btns = bubble.querySelectorAll('.tool-block:not(.has-done)');
+              if (btns.length) { const d=document.createElement('span');d.className='tool-done';d.textContent='✓';btns[btns.length-1].appendChild(d);btns[btns.length-1].classList.add('has-done'); }
             } else if (data.type === 'done') { fullText = data.text || fullText; }
             else if (data.type === 'error') { bubble.remove(); addMessage(data.error, 'error'); setLoading(false); return; }
           } catch { /* skip */ }
         }
       }
 
-      bubble.textContent = fullText || bubble.textContent;
+      showText(bubble, fullText);
       bubble.classList.add('done');
     } catch (err) { if (bubble.parentNode) { bubble.remove(); addMessage('Network error: ' + err.message, 'error'); } }
     finally { setLoading(false); }
   }
+
+  function showText(bubble, text) {
+    const t = bubble.querySelector('.bubble-text');
+    if (t) t.textContent = text;
+    else { const d=document.createElement('div');d.className='bubble-text';d.textContent=text;bubble.appendChild(d); }
+    messages.scrollTop = messages.scrollHeight;
+  }
+  function showBlock(bubble, id, cls, html) {
+    let el = document.getElementById('block-' + id);
+    if (!el) { el=document.createElement('div');el.id='block-'+id;el.className=cls;el.innerHTML=html;bubble.appendChild(el); }
+    else el.innerHTML = html;
+    messages.scrollTop = messages.scrollHeight;
+  }
+  function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addMessage(text, cls) {
     const div = document.createElement('div');

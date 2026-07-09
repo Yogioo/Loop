@@ -27,6 +27,14 @@
   @keyframes blink {
     50% { opacity: 0; }
   }
+  /* Thinking / reasoning text (gray, italic) */
+  .thinking-block { color: #888; font-style: italic; font-size: 13px; margin-bottom: 8px; border-left: 2px solid #444; padding-left: 10px; }
+  /* Tool call block */
+  .tool-block { background: #1e2a3a; border: 1px solid #2a4a6a; border-radius: 6px; padding: 6px 10px; margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .tool-block .tool-icon { font-size: 14px; }
+  .tool-block .tool-name { color: #4a90d9; font-weight: 600; }
+  .tool-block .tool-input { color: #aaa; font-family: monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+  .tool-block .tool-done { color: #6b6; margin-left: auto; font-size: 12px; }
   #input-area { display: flex; gap: 8px; padding: 12px 24px; background: #16213e; border-top: 1px solid #0f3460; }
   #input { flex: 1; padding: 10px 14px; border: 1px solid #0f3460; border-radius: 6px; background: #1a1a2e; color: #e0e0e0; font-size: 14px; outline: none; }
   #input:focus { border-color: #4a90d9; }
@@ -95,14 +103,17 @@
     sendMessage(text);
   }
 
+  let toolCounter = 0;
+
   /**
    * Send a message and stream the AI response via SSE.
-   * Creates a streaming bubble that shows text as it arrives,
-   * with a blinking cursor while the response is in progress.
+   * Creates a streaming bubble that shows thinking (gray), tool calls
+   * (styled blocks), and text as they arrive. Blinking cursor while active.
    */
   async function sendMessage(text) {
     addMessage(text, 'user');
     setLoading(true);
+    toolCounter = 0;
 
     // Create AI bubble in "thinking" state
     const bubble = document.createElement('div');
@@ -113,6 +124,8 @@
 
     let fullText = '';
     let firstUpdate = true;
+    // Track tool call DOM elements by name+input signature (for dedup)
+    const toolEls = new Map();
 
     try {
       const res = await fetch('/chat', {
@@ -148,14 +161,33 @@
           try {
             const data = JSON.parse(line.slice(6));
 
-            if (data.type === 'update') {
-              if (firstUpdate) {
-                firstUpdate = false;
-                bubble.textContent = '';
-              }
-              bubble.textContent = data.text;
-              messages.scrollTop = messages.scrollHeight;
+            if (data.type === 'text') {
+              // Normal text: clear initial placeholder, show accumulated text
+              if (firstUpdate) { firstUpdate = false; clearBubble(bubble); }
+              renderBubble(bubble, data.text, toolEls);
               fullText = data.text;
+            } else if (data.type === 'thinking') {
+              // Thinking block: show in gray at top
+              upsertBlock(bubble, 'thinking-' + hash(data.thinking || ''), 'thinking-block', data.thinking);
+            } else if (data.type === 'tool_call') {
+              // Tool call: show styled block
+              toolCounter++;
+              const key = data.toolName + '-' + (data.toolInput || '');
+              const el = upsertBlock(bubble, 'tool-' + toolCounter, 'tool-block',
+                '<span class="tool-icon">🔧</span>' +
+                '<span class="tool-name">' + esc(data.toolName) + '</span>' +
+                '<span class="tool-input">' + esc(truncate(data.toolInput || '', 200)) + '</span>'
+              );
+              toolEls.set(key, el);
+            } else if (data.type === 'tool_result') {
+              // Mark latest tool block as done
+              const lastTool = bubble.querySelector('.tool-block:not(.tool-done)');
+              if (lastTool) {
+                const done = document.createElement('span');
+                done.className = 'tool-done'; done.textContent = '✓';
+                lastTool.appendChild(done);
+                lastTool.classList.add('tool-done');
+              }
             } else if (data.type === 'done') {
               fullText = data.text || fullText;
             } else if (data.type === 'error') {
@@ -168,11 +200,13 @@
         }
       }
 
-      // Finalize the streaming bubble
-      bubble.textContent = fullText || bubble.textContent;
+      // Finalize: remove streaming cursor
+      renderBubble(bubble, fullText, toolEls);
       bubble.classList.add('done');
-      // Save to history
-      history.push({ text: bubble.textContent, cls: 'pi' });
+      // Save text-only to history
+      const textOnly = bubble.querySelector('.bubble-text');
+      const finalText = textOnly ? textOnly.textContent : (fullText || bubble.textContent);
+      history.push({ text: finalText, cls: 'pi' });
       localStorage.setItem('loop-chat-history', JSON.stringify(history));
     } catch (err) {
       if (bubble.parentNode) {
@@ -183,6 +217,48 @@
       setLoading(false);
     }
   }
+
+  function clearBubble(bubble) {
+    bubble.innerHTML = '';
+  }
+
+  function renderBubble(bubble, text, toolEls) {
+    // Rebuild: keep tool blocks, update text at bottom
+    const existingTools = bubble.querySelectorAll('.tool-block');
+    const existingThinking = bubble.querySelectorAll('.thinking-block');
+    bubble.innerHTML = '';
+    // Re-append thinking blocks
+    for (const el of existingThinking) bubble.appendChild(el.cloneNode(true));
+    // Re-append tool blocks
+    for (const el of existingTools) bubble.appendChild(el.cloneNode(true));
+    // Text at bottom
+    if (text) {
+      const textEl = document.createElement('div');
+      textEl.className = 'bubble-text';
+      textEl.textContent = text;
+      bubble.appendChild(textEl);
+    }
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function upsertBlock(bubble, id, className, html) {
+    let el = document.getElementById('block-' + id);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'block-' + id;
+      el.className = className;
+      el.innerHTML = html;
+      bubble.appendChild(el);
+    } else {
+      el.innerHTML = html;
+    }
+    messages.scrollTop = messages.scrollHeight;
+    return el;
+  }
+
+  function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return h.toString(36); }
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function truncate(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
 
   async function newSession() {
     if (loading) return;

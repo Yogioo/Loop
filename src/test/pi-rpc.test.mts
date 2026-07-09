@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { PiRpcManager, type PromptResult } from '../pi-rpc.mts';
+import { PiRpcManager, type PromptResult, type StreamEvent } from '../pi-rpc.mts';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,9 +34,14 @@ describe('PiRpcManager', () => {
     });
     await manager.start();
 
-    const result = await manager.sendPrompt('Test message') as PromptResult;
+    const events: StreamEvent[] = [];
+    const result = await manager.sendPrompt('Test message', 10000, (e) => events.push(e)) as PromptResult;
     expect(result.text).toBe('You said: Test message');
     expect(result.success).toBe(true);
+    // Should have received text update events
+    const textEvents = events.filter(e => e.type === 'text');
+    expect(textEvents.length).toBeGreaterThan(0);
+    expect(textEvents[textEvents.length - 1].text).toBe('You said: Test message');
 
     await manager.stop();
   });
@@ -100,6 +105,24 @@ describe('PiRpcManager', () => {
     expect(results[0]).toContain('One');
     expect(results[1]).toContain('Two');
     expect(results[2]).toContain('Three');
+
+    await manager.stop();
+  });
+
+  it('should emit text events during streaming', async () => {
+    manager = new PiRpcManager({
+      command: 'node',
+      args: [MOCK_PI_PATH],
+    });
+    await manager.start();
+
+    const events: StreamEvent[] = [];
+    const result = await manager.sendPrompt('Stream test', 10000, (e) => events.push(e)) as PromptResult;
+    
+    expect(result.success).toBe(true);
+    expect(result.text).toContain('Stream test');
+    // At minimum we should get a text event
+    expect(events.some(e => e.type === 'text')).toBe(true);
 
     await manager.stop();
   });

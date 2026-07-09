@@ -42,6 +42,22 @@ export interface PromptResult {
   raw: RpcResponse;
 }
 
+/** Structured event emitted during streaming. */
+export interface StreamEvent {
+  /** Event type: text update, thinking/reasoning, tool call, or tool result */
+  type: 'text' | 'thinking' | 'tool_call' | 'tool_result';
+  /** Accumulated plain-text content (for type 'text') */
+  text?: string;
+  /** Tool name (for type 'tool_call' / 'tool_result') */
+  toolName?: string;
+  /** Tool input as JSON string (for type 'tool_call') */
+  toolInput?: string;
+  /** Tool result summary (for type 'tool_result') */
+  toolResult?: string;
+  /** Thinking/reasoning text (for type 'thinking') */
+  thinking?: string;
+}
+
 export interface PiRpcEvents {
   started: [];
   stopped: [code: number | null, signal: string | null];
@@ -63,8 +79,10 @@ interface QueuedRequest {
   resolve: (result: any) => void;
   reject: (err: Error) => void;
   timeout: number;
-  /** Called on each message_update with the full accumulated text */
-  onUpdate?: (text: string) => void;
+  /** Called on each content update with structured event */
+  onUpdate?: (event: StreamEvent) => void;
+  /** Track emitted tool_use IDs to avoid duplicates */
+  emittedToolIds: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,12 +178,13 @@ export class PiRpcManager {
 
   /**
    * Send a prompt to pi and wait for the full response text.
-   * Collects text from message_update events until the response is received.
+   * Streams structured events (text, thinking, tool_call, tool_result)
+   * via onUpdate callback.
    */
   sendPrompt(
     message: string,
     timeout = 60000,
-    onUpdate?: (text: string) => void,
+    onUpdate?: (event: StreamEvent) => void,
   ): Promise<PromptResult> {
     return new Promise<PromptResult>((resolve, reject) => {
       const cmdId = this.nextId();
@@ -180,6 +199,7 @@ export class PiRpcManager {
         reject,
         timeout,
         onUpdate,
+        emittedToolIds: new Set(),
       });
     });
   }
@@ -201,6 +221,7 @@ export class PiRpcManager {
         resolve: resolve as (result: any) => void,
         reject,
         timeout,
+        emittedToolIds: new Set(),
       });
     });
   }
@@ -258,11 +279,7 @@ export class PiRpcManager {
         const type = line.type as string | undefined;
 
         if (type === 'message_update') {
-          const prevLength = request.textAccumulator.length;
-          this.accumulateText(line, request);
-          if (request.onUpdate && request.textAccumulator.length > prevLength) {
-            request.onUpdate(request.textAccumulator);
-          }
+          this.processMessageUpdate(line, request);
           return;
         }
 
@@ -323,21 +340,58 @@ export class PiRpcManager {
     });
   }
 
-  /** Accumulate text from a message_update event */
-  private accumulateText(obj: Record<string, unknown>, request: QueuedRequest): void {
+  /**
+   * Process a message_update event.
+   * Extracts text, thinking, and tool_use blocks and emits structured
+   * StreamEvents via the onUpdate callback.
+   */
+  private processMessageUpdate(
+    obj: Record<string, unknown>,
+    request: QueuedRequest,
+  ): void {
     const message = obj.message as Record<string, unknown> | undefined;
     if (!message?.content) return;
 
     const content = message.content as Array<Record<string, unknown>>;
-    let newText = '';
+    let newFullText = '';
+    const events: StreamEvent[] = [];
+
     for (const block of content) {
       if (block.type === 'text' && typeof block.text === 'string') {
-        newText += block.text;
+        newFullText += block.text;
+      } else if (block.type === 'tool_use') {
+        const toolId = block.id as string | undefined;
+        // Only emit each tool_use once (id stabilises after first appearance)
+        if (toolId && !request.emittedToolIds.has(toolId)) {
+          request.emittedToolIds.add(toolId);
+          events.push({
+            type: 'tool_call',
+            toolName: block.name as string | undefined ?? 'unknown',
+            toolInput: JSON.stringify(block.input ?? {}),
+          });
+        }
+      } else if (block.type === 'tool_result') {
+        events.push({
+          type: 'tool_result',
+          toolName: 'unknown',
+          toolResult: 'completed',
+        });
+      } else if (block.type === 'thinking' && typeof block.text === 'string') {
+        events.push({ type: 'thinking', thinking: block.text });
       }
     }
 
-    if (newText.length > request.textAccumulator.length) {
-      request.textAccumulator = newText;
+    // Emit text update if accumulated text grew
+    if (newFullText.length > request.textAccumulator.length) {
+      request.textAccumulator = newFullText;
+      events.unshift({ type: 'text', text: newFullText });
+    }
+
+    // Fire all events through the callback
+    if (request.onUpdate) {
+      for (const event of events) {
+        request.onUpdate(event);
+      }
     }
   }
 

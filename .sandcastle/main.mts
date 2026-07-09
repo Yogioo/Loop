@@ -36,12 +36,26 @@ import {
 // 编译时注入的模板文件内容（由 build.mjs 通过 esbuild define 注入）
 // 用于首次运行时在目标目录自动初始化 .sandcastle/ 配置模板。
 // ---------------------------------------------------------------------------
+// Build-time injected template contents (undefined in tsx dev mode).
 declare const __TPL_PLAN_PROMPT: string;
 declare const __TPL_IMPLEMENT_PROMPT: string;
 declare const __TPL_REVIEW_PROMPT: string;
 declare const __TPL_MERGE_PROMPT: string;
 declare const __TPL_CODING_STANDARDS: string;
 declare const __TPL_ENV_EXAMPLE: string;
+// Use typeof guards — tsx doesn't inject these esbuild defines.
+const _TPL_PLAN_PROMPT: string =
+  typeof __TPL_PLAN_PROMPT !== 'undefined' ? __TPL_PLAN_PROMPT : '';
+const _TPL_IMPLEMENT_PROMPT: string =
+  typeof __TPL_IMPLEMENT_PROMPT !== 'undefined' ? __TPL_IMPLEMENT_PROMPT : '';
+const _TPL_REVIEW_PROMPT: string =
+  typeof __TPL_REVIEW_PROMPT !== 'undefined' ? __TPL_REVIEW_PROMPT : '';
+const _TPL_MERGE_PROMPT: string =
+  typeof __TPL_MERGE_PROMPT !== 'undefined' ? __TPL_MERGE_PROMPT : '';
+const _TPL_CODING_STANDARDS: string =
+  typeof __TPL_CODING_STANDARDS !== 'undefined' ? __TPL_CODING_STANDARDS : '';
+const _TPL_ENV_EXAMPLE: string =
+  typeof __TPL_ENV_EXAMPLE !== 'undefined' ? __TPL_ENV_EXAMPLE : '';
 
 /** 在目标目录首次运行时自动创建 .sandcastle/ 配置模板。 */
 function autoInitSandcastleTemplates(targetDir: string): void {
@@ -51,12 +65,12 @@ function autoInitSandcastleTemplates(targetDir: string): void {
 
   fs.mkdirSync(sandcastleDir, { recursive: true });
   const files: Record<string, string> = {
-    "plan-prompt.md": __TPL_PLAN_PROMPT,
-    "implement-prompt.md": __TPL_IMPLEMENT_PROMPT,
-    "review-prompt.md": __TPL_REVIEW_PROMPT,
-    "merge-prompt.md": __TPL_MERGE_PROMPT,
-    "CODING_STANDARDS.md": __TPL_CODING_STANDARDS,
-    ".env.example": __TPL_ENV_EXAMPLE,
+    "plan-prompt.md": _TPL_PLAN_PROMPT,
+    "implement-prompt.md": _TPL_IMPLEMENT_PROMPT,
+    "review-prompt.md": _TPL_REVIEW_PROMPT,
+    "merge-prompt.md": _TPL_MERGE_PROMPT,
+    "CODING_STANDARDS.md": _TPL_CODING_STANDARDS,
+    ".env.example": _TPL_ENV_EXAMPLE,
   };
   for (const [filename, content] of Object.entries(files)) {
     fs.writeFileSync(path.join(sandcastleDir, filename), content, "utf-8");

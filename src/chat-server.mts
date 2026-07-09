@@ -14,20 +14,32 @@ import express from 'express';
 import { PiRpcManager } from './pi-rpc.mts';
 import { execSync } from 'node:child_process';
 
-// Injected by esbuild at build time (undefined in dev/tsx mode)
+// Injected by esbuild at build time (undefined in dev/tsx mode).
 declare const __SKILL_GRILL_ME: string | undefined;
 declare const __SKILL_TO_PRD: string | undefined;
 declare const __SKILL_TO_ISSUES: string | undefined;
+// Use typeof guards because tsx doesn't inject these — they are pure
+// esbuild defines, and typeof is safe on truly undeclared variables.
+const _SKILL_GRILL_ME: string | undefined =
+  typeof __SKILL_GRILL_ME !== 'undefined' ? __SKILL_GRILL_ME : undefined;
+const _SKILL_TO_PRD: string | undefined =
+  typeof __SKILL_TO_PRD !== 'undefined' ? __SKILL_TO_PRD : undefined;
+const _SKILL_TO_ISSUES: string | undefined =
+  typeof __SKILL_TO_ISSUES !== 'undefined' ? __SKILL_TO_ISSUES : undefined;
 
 // ---------------------------------------------------------------------------
 // Paths
 // In CJS (SEA bundle), __dirname is a built-in global; in ESM (tsx) we compute it.
-const __dirname: string = (() => {
-  // @ts-expect-error — CJS global, only available in bundled build
-  if (typeof __dirname !== 'undefined') return __dirname;
-  return path.dirname(fileURLToPath(import.meta.url));
-})();
-const PUBLIC_DIR = path.resolve(__dirname, 'public');
+// Note: we cannot declare `const __dirname` in ESM because the CJS global
+// __dirname inside the IIFE initializer would refer to the not-yet-initialized
+// const (TDZ), causing ReferenceError in strict mode.
+let _esmDirname: string;
+try {
+  _esmDirname = __dirname;
+} catch {
+  _esmDirname = path.dirname(fileURLToPath(import.meta.url));
+}
+const PUBLIC_DIR = path.resolve(_esmDirname, 'public');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,7 +91,7 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
   };
   const getSkill = (name: string, embedded?: string) => {
     if (embedded) return writeTempSkill(name, embedded);
-    const p = path.join(path.resolve(__dirname, '..', 'skills'), name, 'SKILL.md');
+    const p = path.join(path.resolve(_esmDirname, '..', 'skills'), name, 'SKILL.md');
     if (fs.existsSync(p)) return p;
     return writeTempSkill(name, `skill ${name} not found`);
   };
@@ -90,9 +102,9 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
     command: options.piCommand ?? (process.platform === 'win32' ? 'pi.cmd' : 'pi'),
     args: options.piArgs ?? [
       '--mode', 'rpc',
-      '--append-system-prompt', getSkill('grill-me', __SKILL_GRILL_ME),
-      '--skill',             getSkill('to-prd',   __SKILL_TO_PRD),
-      '--skill',             getSkill('to-issues', __SKILL_TO_ISSUES),
+      '--append-system-prompt', getSkill('grill-me', _SKILL_GRILL_ME),
+      '--skill',             getSkill('to-prd',   _SKILL_TO_PRD),
+      '--skill',             getSkill('to-issues', _SKILL_TO_ISSUES),
     ],
     cwd: options.cwd,
     env: options.piEnv,
@@ -106,9 +118,10 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
   // Routes
   // -----------------------------------------------------------------------
 
-  // Declare build-time embedded HTML (injected by esbuild in exe builds)
-  // @ts-expect-error — only defined in bundled builds
-  declare const __INDEX_HTML: string | undefined;
+  // Build-time embedded HTML (injected by esbuild in exe builds).
+  // Use typeof guard — in tsx dev mode this variable isn't declared at all.
+  const _INDEX_HTML: string | undefined =
+    typeof __INDEX_HTML !== 'undefined' ? __INDEX_HTML : undefined;
 
   // Serve the HTML chat page
   app.get('/', (_req, res) => {
@@ -116,8 +129,8 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
     let html: string;
     if (fs.existsSync(htmlPath)) {
       html = fs.readFileSync(htmlPath, 'utf-8');
-    } else if (typeof __INDEX_HTML !== 'undefined') {
-      html = __INDEX_HTML;
+    } else if (typeof _INDEX_HTML !== 'undefined') {
+      html = _INDEX_HTML;
     } else {
       html = getInlineHtml();
     }
@@ -375,8 +388,11 @@ function getInlineHtml(): string {
 
 // Only run as main when executed directly (tsx / node / SEA exe).
 // In CJS/SEA context, import.meta is unavailable so we use a fallback.
-const isCjs = typeof __dirname !== 'undefined' && typeof require !== 'undefined';
-const isMain = isCjs || (process.argv[1] && (
+declare const __INDEX_HTML: string | undefined;
+
+let _isCjs = false;
+try { _isCjs = typeof __dirname === 'string' && typeof require === 'function'; } catch { /* ESM */ }
+const isMain = _isCjs || (process.argv[1] && (
   process.argv[1] === fileURLToPath(import.meta.url) ||
   process.argv[1].endsWith('chat-server.mts') ||
   process.argv[1].endsWith('chat-server.js')

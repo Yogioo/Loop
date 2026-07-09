@@ -63,6 +63,8 @@ interface QueuedRequest {
   resolve: (result: any) => void;
   reject: (err: Error) => void;
   timeout: number;
+  /** Called on each message_update with the full accumulated text */
+  onUpdate?: (text: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +162,11 @@ export class PiRpcManager {
    * Send a prompt to pi and wait for the full response text.
    * Collects text from message_update events until the response is received.
    */
-  sendPrompt(message: string, timeout = 60000): Promise<PromptResult> {
+  sendPrompt(
+    message: string,
+    timeout = 60000,
+    onUpdate?: (text: string) => void,
+  ): Promise<PromptResult> {
     return new Promise<PromptResult>((resolve, reject) => {
       const cmdId = this.nextId();
       this.enqueue({
@@ -173,6 +179,7 @@ export class PiRpcManager {
         resolve: resolve as (result: any) => void,
         reject,
         timeout,
+        onUpdate,
       });
     });
   }
@@ -251,7 +258,11 @@ export class PiRpcManager {
         const type = line.type as string | undefined;
 
         if (type === 'message_update') {
+          const prevLength = request.textAccumulator.length;
           this.accumulateText(line, request);
+          if (request.onUpdate && request.textAccumulator.length > prevLength) {
+            request.onUpdate(request.textAccumulator);
+          }
           return;
         }
 

@@ -133,7 +133,8 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
     });
   });
 
-  // Handle chat messages
+  // Handle chat messages — streams response via SSE so the frontend
+  // can show text as it arrives (like ChatGPT-style progressive output).
   app.post('/chat', async (req, res) => {
     try {
       const { message } = req.body;
@@ -153,11 +154,26 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
         }
       }
 
-      const result = await manager.sendPrompt(message, 0);
-      res.setHeader('content-type', 'text/plain; charset=utf-8');
-      res.status(200).send(result.text);
+      // Switch to SSE streaming
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      const result = await manager.sendPrompt(message, 0, (text) => {
+        res.write(`data: ${JSON.stringify({ type: 'update', text })}\n\n`);
+      });
+
+      res.write(`data: ${JSON.stringify({ type: 'done', text: result.text })}\n\n`);
+      res.end();
     } catch (err) {
-      res.status(500).json({ error: toErrorMessage(err) });
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: 'error', error: toErrorMessage(err) })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ error: toErrorMessage(err) });
+      }
     }
   });
 
@@ -245,6 +261,9 @@ function getInlineHtml(): string {
   .message.user { background: #0f3460; align-self: flex-end; }
   .message.pi { background: #16213e; align-self: flex-start; border: 1px solid #0f3460; }
   .message.error { background: #3d0000; align-self: flex-start; border: 1px solid #6b0000; color: #ff6b6b; }
+  .message.pi.streaming::after { content: ' ▌'; animation: blink 1s step-end infinite; }
+  .message.pi.streaming.done::after { content: none; }
+  @keyframes blink { 50% { opacity: 0; } }
   #input-area { display: flex; gap: 8px; padding: 12px 24px; background: #16213e; border-top: 1px solid #0f3460; }
   #input { flex: 1; padding: 10px 14px; border: 1px solid #0f3460; border-radius: 6px; background: #1a1a2e; color: #e0e0e0; font-size: 14px; outline: none; }
   #input:focus { border-color: #4a90d9; }
@@ -275,49 +294,61 @@ function getInlineHtml(): string {
 
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 
-  async function sendSkill(name) {
-    const text = '/skill:' + name;
-    addMessage(text, 'user');
-    setLoading(true);
+  function sendSkill(name) { if (!loading) sendMessage('/skill:' + name); }
 
-    try {
-      const res = await fetch('/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: text }) });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        addMessage(err.error || 'Request failed', 'error');
-      } else {
-        const reply = await res.text();
-        addMessage(reply || '(empty response)', 'pi');
-      }
-    } catch (err) {
-      addMessage('Network error: ' + err.message, 'error');
-    } finally {
-      setLoading(false);
-    }
+  function send() {
+    const text = input.value.trim();
+    if (!text || loading) return;
+    input.value = '';
+    sendMessage(text);
   }
 
-  async function send() {
-    const text = input.value.trim();
-    if (!text) return;
-
-    input.value = '';
+  async function sendMessage(text) {
     addMessage(text, 'user');
     setLoading(true);
 
+    const bubble = document.createElement('div');
+    bubble.className = 'message pi streaming';
+    bubble.textContent = 'Thinking...';
+    messages.appendChild(bubble);
+    messages.scrollTop = messages.scrollHeight;
+
+    let fullText = '';
+    let firstUpdate = true;
+
     try {
       const res = await fetch('/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: text }) });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        addMessage(err.error || 'Request failed', 'error');
-      } else {
-        const reply = await res.text();
-        addMessage(reply || '(empty response)', 'pi');
+      if (!res.ok) { bubble.remove(); setLoading(false); return; }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'update') {
+              if (firstUpdate) { firstUpdate = false; bubble.textContent = ''; }
+              bubble.textContent = data.text;
+              messages.scrollTop = messages.scrollHeight;
+              fullText = data.text;
+            } else if (data.type === 'done') { fullText = data.text || fullText; }
+            else if (data.type === 'error') { bubble.remove(); addMessage(data.error, 'error'); setLoading(false); return; }
+          } catch { /* skip */ }
+        }
       }
-    } catch (err) {
-      addMessage('Network error: ' + err.message, 'error');
-    } finally {
-      setLoading(false);
-    }
+
+      bubble.textContent = fullText || bubble.textContent;
+      bubble.classList.add('done');
+    } catch (err) { if (bubble.parentNode) { bubble.remove(); addMessage('Network error: ' + err.message, 'error'); } }
+    finally { setLoading(false); }
   }
 
   function addMessage(text, cls) {

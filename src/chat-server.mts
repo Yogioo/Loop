@@ -352,14 +352,20 @@ const isMain = isCjs || (process.argv[1] && (
 ));
 
 if (isMain) {
-  // Parse --target <dir> to set pi's working directory (defaults to CWD)
+  // 解析目标目录：--target <dir> / 拖拽的文件夹 / 当前目录
   const args = process.argv.slice(2);
   const targetIdx = args.indexOf('--target');
-  const cwd = targetIdx !== -1 ? path.resolve(args[targetIdx + 1] ?? '.') : undefined;
-
-  if (cwd) {
-    console.log(`Target directory: ${cwd}`);
+  const barePath = args.find(a => !a.startsWith('-') && fs.existsSync(a) && fs.statSync(a).isDirectory());
+  let cwd: string | undefined;
+  if (targetIdx !== -1) {
+    cwd = path.resolve(args[targetIdx + 1] ?? '.');
+  } else if (barePath) {
+    cwd = path.resolve(barePath);
+  } else {
+    cwd = process.cwd();
   }
+
+  console.log(`Target directory: ${cwd}`);
 
   createChatServer({ cwd }).catch((err) => {
     console.error('Failed to start server:', err);

@@ -142,6 +142,9 @@ console.log("Building frontend (chat-server)...");
 const skillContent = (name) => fs.readFileSync(
   path.join(ROOT, "skills", name, "SKILL.md"), "utf-8"
 );
+const indexHtml = fs.readFileSync(
+  path.join(ROOT, "src", "public", "index.html"), "utf-8"
+);
 buildExe(
   await bundle(
     path.join(ROOT, "src", "chat-server.mts"),
@@ -150,6 +153,7 @@ buildExe(
       __SKILL_GRILL_ME: skillContent("grill-me"),
       __SKILL_TO_PRD: skillContent("to-prd"),
       __SKILL_TO_ISSUES: skillContent("to-issues"),
+      __INDEX_HTML: indexHtml,
     }
   ),
   "loop-frontend.exe"

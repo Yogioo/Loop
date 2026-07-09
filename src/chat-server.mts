@@ -106,15 +106,23 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
   // Routes
   // -----------------------------------------------------------------------
 
+  // Declare build-time embedded HTML (injected by esbuild in exe builds)
+  // @ts-expect-error — only defined in bundled builds
+  declare const __INDEX_HTML: string | undefined;
+
   // Serve the HTML chat page
   app.get('/', (_req, res) => {
     const htmlPath = path.resolve(PUBLIC_DIR, 'index.html');
+    let html: string;
     if (fs.existsSync(htmlPath)) {
-      res.setHeader('content-type', 'text/html; charset=utf-8');
-      res.sendFile(htmlPath);
+      html = fs.readFileSync(htmlPath, 'utf-8');
+    } else if (typeof __INDEX_HTML !== 'undefined') {
+      html = __INDEX_HTML;
     } else {
-      res.status(200).type('html').send(getInlineHtml());
+      html = getInlineHtml();
     }
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.status(200).send(html);
   });
 
   // Health check

@@ -153,7 +153,7 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
         }
       }
 
-      const result = await manager.sendPrompt(message, 120000);
+      const result = await manager.sendPrompt(message, 0);
       res.setHeader('content-type', 'text/plain; charset=utf-8');
       res.status(200).send(result.text);
     } catch (err) {

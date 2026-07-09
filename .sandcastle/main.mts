@@ -325,9 +325,9 @@ function beadsDbFlag(): string {
   return `--db "${BDS_DB_PATH}"`;
 }
 
-/** 运行 bd ready --json，返回原始 issue 数组。失败时抛异常。 */
+/** 运行 bd ready --json --label ready-for-agent，返回标记为可被 agent 捡取的 issue 数组。失败时抛异常。 */
 function getReadyIssues(): unknown[] {
-  const raw = execSync(`bd ready --json ${beadsDbFlag()}`, {
+  const raw = execSync(`bd ready --json --label ready-for-agent ${beadsDbFlag()}`, {
     encoding: "utf-8",
     timeout: 30_000,
     cwd: TARGET_DIR,

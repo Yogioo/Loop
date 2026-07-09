@@ -4,7 +4,7 @@
 
 <issues-json>
 
-!`bd --db {{BD_DB_PATH}} ready --json`
+!`bd --db {{BD_DB_PATH}} ready --json --label ready-for-agent`
 
 </issues-json>
 

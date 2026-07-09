@@ -142,6 +142,10 @@ console.log("Building frontend (chat-server)...");
 const skillContent = (name) => fs.readFileSync(
   path.join(ROOT, "skills", name, "SKILL.md"), "utf-8"
 );
+// grill-me 通过 --append-system-prompt 注入系统提示词,
+// 必须剥离 YAML frontmatter, 否则 pi 会把它当成 skill 加载,
+// 而 frontmatter 中的 disable-model-invocation: true 会阻止自动激活。
+const stripFrontmatter = (content) => content.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
 const indexHtml = fs.readFileSync(
   path.join(ROOT, "src", "public", "index.html"), "utf-8"
 );
@@ -150,7 +154,7 @@ buildExe(
     path.join(ROOT, "src", "chat-server.mts"),
     "loop-frontend",
     {
-      __SKILL_GRILL_ME: skillContent("grill-me"),
+      __SKILL_GRILL_ME: stripFrontmatter(skillContent("grill-me")),
       __SKILL_TO_PRD: skillContent("to-prd"),
       __SKILL_TO_ISSUES: skillContent("to-issues"),
       __INDEX_HTML: indexHtml,

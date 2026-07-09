@@ -326,9 +326,12 @@ const MAX_CONCURRENT_ISSUES = parseInt(
 );
 
 // 钩子在每次迭代开始前在沙箱内运行。
-// npm install 确保沙箱始终有最新的依赖。
-const hooks = {
-  sandbox: { onSandboxReady: [{ command: "npm install" }] },
+// 按需取消注释或添加自定义钩子，例如：
+//   { command: "npm install" }    — 安装依赖
+//   { command: "pip install -r requirements.txt" }  — Python 项目
+//   { command: "go mod tidy" }    — Go 项目
+const hooks: sandcastle.SandboxHooks = {
+  // sandbox: { onSandboxReady: [{ command: "npm install" }] },
 };
 
 // Loop v2 — Symlink 配置：

@@ -247,7 +247,11 @@ console.log(`Beads 数据库：${BDS_DB_PATH}`);
 
 // 将 sandcastle 的硬编码目录（.sandcastle/worktrees, .sandcastle/logs）
 // 通过 Junction 重定向到 LOOP_DATA_DIR/sandcastle/ 下。
-setupSandcastleDirJunctions(LOOP_DATA_DIR);
+// Loop 自身和目标项目都需要 junction，因为 sandcastle 会在两者中操作。
+setupSandcastleDirJunctions(LOOP_DATA_DIR); // process.cwd() = Loop 目录
+if (path.resolve(TARGET_DIR) !== path.resolve(process.cwd())) {
+  setupSandcastleDirJunctions(LOOP_DATA_DIR, TARGET_DIR); // --target 指向的目标项目
+}
 console.log(`Sandcastle worktrees → ${path.join(LOOP_DATA_DIR, "sandcastle", "worktrees")}`);
 console.log(`Sandcastle logs     → ${path.join(LOOP_DATA_DIR, "sandcastle", "logs")}`);
 
@@ -442,6 +446,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   const planResult = await sandcastle.run({
     hooks,
     sandbox: noSandbox(),
+    cwd: TARGET_DIR,
     name: "planner",
     maxIterations: 1,
     agent: pi(AGENTS.planner.model, { thinking: AGENTS.planner.thinking }),
@@ -539,6 +544,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       const sandbox = await sandcastle.createSandbox({
         branch: issue.branch,
         sandbox: noSandbox(),
+        cwd: TARGET_DIR,
         hooks,
         // node_modules 走 Junction/symlink -> 共享缓存，不复制
         copyToWorktree: symlinkConfig.copyPaths,
@@ -641,6 +647,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   await sandcastle.run({
     hooks,
     sandbox: noSandbox(),
+    cwd: TARGET_DIR,
     name: "merger",
     maxIterations: 1,
     agent: pi(AGENTS.merger.model, { thinking: AGENTS.merger.thinking }),

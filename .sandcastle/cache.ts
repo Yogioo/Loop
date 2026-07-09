@@ -260,11 +260,19 @@ const SANDCASTLE_REL_DIRS = {
  * (.sandcastle/worktrees, .sandcastle/logs) transparently point to
  * LOOP_DATA_DIR/sandcastle/{worktrees,logs}/.
  *
+ * @param dataDir - LOOP_DATA_DIR root for backend storage.
+ * @param projectDir - Project root where .sandcastle/ junctions are created.
+ *   Defaults to process.cwd().
+ *
  * Must be called once at startup, before any sandcastle operation.
  * Idempotent: safe to call multiple times.
  */
-export function setupSandcastleDirJunctions(dataDir?: string): void {
+export function setupSandcastleDirJunctions(
+  dataDir?: string,
+  projectDir?: string,
+): void {
   const root = dataDir ?? getLoopDataDir();
+  const cwd = projectDir ?? process.cwd();
 
   // Ensure backend directories exist
   const backendWorktrees = path.resolve(root, ...SUBDIRS.sandcastleWorktrees);
@@ -274,7 +282,7 @@ export function setupSandcastleDirJunctions(dataDir?: string): void {
 
   // Create junctions from .sandcastle/{worktrees,logs} -> LOOP_DATA_DIR/sandcastle/{worktrees,logs}
   for (const [key, segments] of Object.entries(SANDCASTLE_REL_DIRS)) {
-    const junctionPath = path.resolve(process.cwd(), ...segments);
+    const junctionPath = path.resolve(cwd, ...segments);
     const targetPath = path.resolve(
       root,
       "sandcastle",

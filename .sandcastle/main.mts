@@ -33,6 +33,50 @@ import {
 } from "./cache.ts";
 
 // ---------------------------------------------------------------------------
+// 编译时注入的模板文件内容（由 build.mjs 通过 esbuild define 注入）
+// 用于首次运行时在目标目录自动初始化 .sandcastle/ 配置模板。
+// ---------------------------------------------------------------------------
+declare const __TPL_PLAN_PROMPT: string;
+declare const __TPL_IMPLEMENT_PROMPT: string;
+declare const __TPL_REVIEW_PROMPT: string;
+declare const __TPL_MERGE_PROMPT: string;
+declare const __TPL_CODING_STANDARDS: string;
+declare const __TPL_ENV_EXAMPLE: string;
+
+/** 在目标目录首次运行时自动创建 .sandcastle/ 配置模板。 */
+function autoInitSandcastleTemplates(targetDir: string): void {
+  const sandcastleDir = path.join(targetDir, ".sandcastle");
+  // 以 plan-prompt.md 存在与否作为是否需要初始化的标志
+  if (fs.existsSync(path.join(sandcastleDir, "plan-prompt.md"))) return;
+
+  fs.mkdirSync(sandcastleDir, { recursive: true });
+  const files: Record<string, string> = {
+    "plan-prompt.md": __TPL_PLAN_PROMPT,
+    "implement-prompt.md": __TPL_IMPLEMENT_PROMPT,
+    "review-prompt.md": __TPL_REVIEW_PROMPT,
+    "merge-prompt.md": __TPL_MERGE_PROMPT,
+    "CODING_STANDARDS.md": __TPL_CODING_STANDARDS,
+    ".env.example": __TPL_ENV_EXAMPLE,
+  };
+  for (const [filename, content] of Object.entries(files)) {
+    fs.writeFileSync(path.join(sandcastleDir, filename), content, "utf-8");
+  }
+  console.log(`已初始化 sandcastle 配置模板 → ${sandcastleDir}`);
+  console.log("  可修改其中的 .md 和 CODING_STANDARDS.md 来自定义 Agent 行为。");
+  console.log("  复制 .env.example 为 .env 即可启用项目级模型配置。");
+}
+
+/**
+ * 解析 prompt 文件路径：优先目标目录的 .sandcastle/，不存在则回退 CWD。
+ * sandcastle 的 promptFile 相对 process.cwd()，因此用绝对路径传入。
+ */
+function resolvePromptFile(targetDir: string, filename: string): string {
+  const targetPath = path.resolve(targetDir, ".sandcastle", filename);
+  if (fs.existsSync(targetPath)) return targetPath;
+  return path.resolve(process.cwd(), ".sandcastle", filename);
+}
+
+// ---------------------------------------------------------------------------
 // Windows shell quoting 修复
 //
 // sandcastle 内部使用 Unix 风格单引号做 shell 转义（shellEscape），
@@ -77,9 +121,8 @@ const planSchema = z.object({
 // 配置
 // ---------------------------------------------------------------------------
 
-// 从 .sandcastle/.env 加载环境变量（不会覆盖已有的环境变量）。
-// .env.example 是带注释的模板，可复制后修改。
-(function loadEnv() {
+// 加载全局 .env（exe 目录），不覆盖已有环境变量
+(function loadGlobalEnv() {
   const envPath = path.resolve(import.meta.dirname ?? __dirname, ".env");
   if (!fs.existsSync(envPath)) return;
   for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
@@ -91,6 +134,20 @@ const planSchema = z.object({
     if (!process.env[key]) process.env[key] = trimmed.slice(eq + 1).trim();
   }
 })();
+
+/** 加载项目 .env（TARGET_DIR/.sandcastle/.env），覆盖已有值。 */
+function loadProjectEnv(targetDir: string): void {
+  const envPath = path.resolve(targetDir, ".sandcastle", ".env");
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    process.env[key] = trimmed.slice(eq + 1).trim();
+  }
+}
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -133,6 +190,13 @@ if (targetIdx !== -1) {
 }
 
 console.log(`目标目录：${TARGET_DIR}`);
+
+// 加载项目级 .env（TARGET_DIR/.sandcastle/.env），覆盖全局配置
+// 优先级：环境变量 > 项目 .env > 全局 .env > 默认值
+loadProjectEnv(TARGET_DIR);
+
+// 自动初始化：首次运行时在目标目录创建 .sandcastle/ 配置模板
+autoInitSandcastleTemplates(TARGET_DIR);
 
 // 预检：确保 git 仓库有效（无 .git 则 init，无提交则空 commit）
 if (!fs.existsSync(path.join(TARGET_DIR, '.git'))) {
@@ -364,7 +428,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     name: "planner",
     maxIterations: 1,
     agent: pi(AGENTS.planner.model, { thinking: AGENTS.planner.thinking }),
-    promptFile: "./.sandcastle/plan-prompt.md",
+    promptFile: resolvePromptFile(TARGET_DIR, "plan-prompt.md"),
     promptArgs: {
       BD_DB_PATH: BDS_DB_PATH,
     },
@@ -474,7 +538,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           name: "implementer",
           maxIterations: 100,
           agent: pi(AGENTS.implementer.model, { thinking: AGENTS.implementer.thinking }),
-          promptFile: "./.sandcastle/implement-prompt.md",
+          promptFile: resolvePromptFile(TARGET_DIR, "implement-prompt.md"),
           promptArgs: {
             TASK_ID: issue.id,
             ISSUE_TITLE: issue.title,
@@ -488,7 +552,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             name: "reviewer",
             maxIterations: 1,
             agent: pi(AGENTS.reviewer.model, { thinking: AGENTS.reviewer.thinking }),
-            promptFile: "./.sandcastle/review-prompt.md",
+            promptFile: resolvePromptFile(TARGET_DIR, "review-prompt.md"),
             promptArgs: {
               BRANCH: issue.branch,
               BASE_BRANCH,
@@ -561,7 +625,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     name: "merger",
     maxIterations: 1,
     agent: pi(AGENTS.merger.model, { thinking: AGENTS.merger.thinking }),
-    promptFile: "./.sandcastle/merge-prompt.md",
+    promptFile: resolvePromptFile(TARGET_DIR, "merge-prompt.md"),
     promptArgs: {
       // 分支名列表（markdown 格式，每行一个）。
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),

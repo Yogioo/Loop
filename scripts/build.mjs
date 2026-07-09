@@ -160,8 +160,23 @@ buildExe(
 );
 
 console.log("Building backend (agent-loop)...");
+// 读取模板文件内容，注入为编译时常量（供 main.mts 的 auto-init 使用）
+const tpl = (name) => fs.readFileSync(
+  path.join(ROOT, ".sandcastle", name), "utf-8"
+);
 buildExe(
-  await bundle(path.join(ROOT, ".sandcastle", "main.mts"), "loop-backend"),
+  await bundle(
+    path.join(ROOT, ".sandcastle", "main.mts"),
+    "loop-backend",
+    {
+      __TPL_PLAN_PROMPT: tpl("plan-prompt.md"),
+      __TPL_IMPLEMENT_PROMPT: tpl("implement-prompt.md"),
+      __TPL_REVIEW_PROMPT: tpl("review-prompt.md"),
+      __TPL_MERGE_PROMPT: tpl("merge-prompt.md"),
+      __TPL_CODING_STANDARDS: tpl("CODING_STANDARDS.md"),
+      __TPL_ENV_EXAMPLE: tpl(".env.example"),
+    }
+  ),
   "loop-backend.exe"
 );
 

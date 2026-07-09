@@ -31,7 +31,7 @@ function sleepSync(ms) {
 }
 
 /** Bundle TS → CJS, fixing import.meta.url → CJS __filename / __dirname. */
-async function bundle(entry, name) {
+async function bundle(entry, name, defines = {}) {
   const outfile = path.join(DIST, `${name}.cjs`);
   await esbuild.build({
     entryPoints: [entry],
@@ -40,7 +40,10 @@ async function bundle(entry, name) {
     target: "node24",
     format: "cjs",
     outfile,
-    logLevel: "error",  // suppress expected import.meta warnings
+    logLevel: "error",
+    define: Object.fromEntries(
+      Object.entries(defines).map(([k, v]) => [k, JSON.stringify(v)])
+    ),
   });
 
   // Post-process: replace import.meta with CJS globals
@@ -136,8 +139,19 @@ try {
 fs.mkdirSync(DIST, { recursive: true });
 
 console.log("Building frontend (chat-server)...");
+const skillContent = (name) => fs.readFileSync(
+  path.join(ROOT, "skills", name, "SKILL.md"), "utf-8"
+);
 buildExe(
-  await bundle(path.join(ROOT, "src", "chat-server.mts"), "loop-frontend"),
+  await bundle(
+    path.join(ROOT, "src", "chat-server.mts"),
+    "loop-frontend",
+    {
+      __SKILL_GRILL_ME: skillContent("grill-me"),
+      __SKILL_TO_PRD: skillContent("to-prd"),
+      __SKILL_TO_ISSUES: skillContent("to-issues"),
+    }
+  ),
   "loop-frontend.exe"
 );
 

@@ -8,10 +8,16 @@
 import * as http from 'node:http';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { PiRpcManager } from './pi-rpc.mts';
 import { execSync } from 'node:child_process';
+
+// Injected by esbuild at build time (undefined in dev/tsx mode)
+declare const __SKILL_GRILL_ME: string | undefined;
+declare const __SKILL_TO_PRD: string | undefined;
+declare const __SKILL_TO_ISSUES: string | undefined;
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -64,11 +70,19 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
   // Parse JSON bodies
   app.use(express.json());
 
-  // Project skills directory
-  const skillsDir = path.resolve(__dirname, '..', 'skills');
-  const grillMeSkillPath = path.join(skillsDir, 'grill-me', 'SKILL.md');
-  const toPrdSkillPath = path.join(skillsDir, 'to-prd', 'SKILL.md');
-  const toIssuesSkillPath = path.join(skillsDir, 'to-issues', 'SKILL.md');
+  // Skills — embedded at build time; reads from disk in dev mode (tsx)
+  // Write to temp files to avoid Windows command-line multi-line escaping issues
+  const writeTempSkill = (name: string, content: string) => {
+    const tmp = path.join(os.tmpdir(), `loop-skill-${name}-${Date.now()}.md`);
+    fs.writeFileSync(tmp, content, 'utf-8');
+    return tmp;
+  };
+  const getSkill = (name: string, embedded?: string) => {
+    if (embedded) return writeTempSkill(name, embedded);
+    const p = path.join(path.resolve(__dirname, '..', 'skills'), name, 'SKILL.md');
+    if (fs.existsSync(p)) return p;
+    return writeTempSkill(name, `skill ${name} not found`);
+  };
 
   // Create PiRpcManager
   const manager = new PiRpcManager({
@@ -76,9 +90,9 @@ export async function createChatServer(options: ChatServerOptions = {}): Promise
     command: options.piCommand ?? (process.platform === 'win32' ? 'pi.cmd' : 'pi'),
     args: options.piArgs ?? [
       '--mode', 'rpc',
-      '--append-system-prompt', grillMeSkillPath,
-      '--skill', toPrdSkillPath,
-      '--skill', toIssuesSkillPath,
+      '--append-system-prompt', getSkill('grill-me', __SKILL_GRILL_ME),
+      '--skill',             getSkill('to-prd',   __SKILL_TO_PRD),
+      '--skill',             getSkill('to-issues', __SKILL_TO_ISSUES),
     ],
     cwd: options.cwd,
     env: options.piEnv,

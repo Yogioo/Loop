@@ -8,8 +8,6 @@
  * @returns true if the string is a palindrome, false otherwise
  */
 export function isPalindrome(str: string): boolean {
-  // Normalize: lowercase and remove non-alphanumeric characters
   const cleaned = str.toLowerCase().replace(/[^a-z0-9]/g, '');
-  // Compare with its reverse
   return cleaned === cleaned.split('').reverse().join('');
 }

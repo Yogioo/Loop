@@ -663,6 +663,27 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log("\n分支已合并。");
 
   // -------------------------------------------------------------------------
+  // 清理已合并分支
+  //
+  // git worktree remove（在 sandbox.close() 中）只清理 worktree 目录，
+  // 不删除分支 ref。用 -d 而非 -D，确保未完全合并的分支会拒绝删除。
+  // -------------------------------------------------------------------------
+  console.log("清理已合并分支…");
+  for (const branch of completedBranches) {
+    try {
+      execSync(`git branch -d ${branch}`, {
+        encoding: "utf-8",
+        timeout: 10_000,
+        cwd: TARGET_DIR,
+        stdio: "pipe",
+      });
+      console.log(`  已删除: ${branch}`);
+    } catch (err) {
+      console.warn(`  跳过 (可能未完全合并): ${branch}`);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // 合并完成后，将本地 beads 工单状态变更（close/label 等）推送到远端。
   // 这样其他机器 pull 后能看到最新的工单状态。
   // -------------------------------------------------------------------------

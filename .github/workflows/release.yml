@@ -1,0 +1,50 @@
+name: Build & Release
+
+# 当你推送 v 开头的 tag 时自动触发（比如 v0.2.1）
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 也支持在 GitHub 网页上手动触发（Actions 页面 → 选择这个 workflow → Run workflow）
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 安装 postject（SEA 注入工具）
+        run: npm install -g postject
+
+      - name: 构建 EXE
+        run: npm run build
+
+      - name: 打包为 7z（压缩）
+        run: |
+          7z a loop-windows-x64.7z .\dist\loop-frontend.exe .\dist\loop-backend.exe
+
+      - name: 创建 GitHub Release 并上传
+        uses: softprops/action-gh-release@v2
+        with:
+          # 上传这两个文件到 Release 页面
+          files: |
+            loop-windows-x64.7z
+            dist/loop-frontend.exe
+            dist/loop-backend.exe
+          # 自动生成 Release Notes（基于 commits）
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -73,7 +73,15 @@ npm run loop -- --target /path/to/your-project
 
 ## 打包为独立 exe
 
-Loop 可以打包为不依赖 Node.js 的独立 `.exe`。双击 `build.bat` 或运行：
+Loop 可以打包为不依赖 Node.js 的独立 `.exe`。
+
+> exe 内含 Node.js 运行时，所以较大。`pi`、`bd`、`git` 作为子进程调用，仍需系统安装。
+>
+> 本质 = 自带 Node.js 的 JS bundle，不是静态编译。
+
+### 本地打包
+
+双击 `build.bat` 或运行：
 
 ```bash
 npm run build
@@ -81,15 +89,41 @@ npm run build
 # 产出 dist/loop-backend.exe  (~88 MB)
 ```
 
-> exe 内含 Node.js 运行时，所以较大。`pi`、`bd`、`git` 作为子进程调用，仍需系统安装。
->
-> 本质 = 自带 Node.js 的 JS bundle，不是静态编译。
-
 ```bash
 # 直接用 exe，不需要装 Node.js / npm / tsx
 loop-frontend.exe --target C:\your-project
 loop-backend.exe  --target C:\your-project
 ```
+
+### CI/CD 自动发布（GitHub Actions）
+
+推送 `v` 开头的 tag 即可触发 GitHub Actions 自动构建 exe 并发布 Release：
+
+```bash
+# 打标签 + 推送，剩下的 GitHub 自动完成
+git tag v0.2.1
+git push origin v0.2.1
+```
+
+**流水线自动执行：**
+
+| 步骤 | 说明 |
+|------|------|
+| 检出代码 | `actions/checkout@v4` |
+| 安装 Node.js 24 | `actions/setup-node@v4` |
+| 安装依赖 | `npm ci` |
+| 构建 EXE | `npm run build`（esbuild bundle → Node.js SEA → postject 注入） |
+| 压缩 | `7z a loop-windows-x64.7z` |
+| 发布 Release | 上传 `.exe` + `.7z` 到 GitHub Release，自动生成 Release Notes |
+
+**Release 产物（每个版本自动生成）：**
+- `loop-frontend.exe` — 聊天前端 (~87 MB)
+- `loop-backend.exe` — AgentLoop 后端 (~88 MB)
+- `loop-windows-x64.7z` — 两个 exe 的压缩包 (~50 MB)
+
+**也可手动触发**：GitHub 仓库 → Actions → Build & Release → Run workflow。
+
+**配置文件**：`.github/workflows/release.yml`，基于 `windows-latest`  runner，公开仓库免费使用。
 
 ## 技能
 
@@ -103,6 +137,9 @@ loop-backend.exe  --target C:\your-project
 
 ```
 loop/
+├── .github/
+│   └── workflows/
+│       └── release.yml    # CI/CD：推送 tag 自动构建 exe + 发布 Release
 ├── src/
 │   ├── chat-server.mts    # Express 前端服务器
 │   ├── pi-rpc.mts         # pi RPC 进程管理
@@ -110,7 +147,7 @@ loop/
 ├── .sandcastle/
 │   └── main.mts           # AgentLoop 编排（规划→实现→审查→合并）
 ├── scripts/
-│   └── build.mjs          # exe 打包脚本
+│   └── build.mjs          # exe 打包脚本（本地 & CI 共用）
 ├── skills/                # 技能文件
 │   ├── grill-me/
 │   ├── to-prd/
